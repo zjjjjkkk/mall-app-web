@@ -98,23 +98,92 @@
 					return;
 				}
 				fetchCartList().then(response => {
-					let list = response.data;
+					let list = response.data || [];
 					let cartList = list.map(item => {
 						item.checked = true;
 						item.loaded = "loaded";
-						let spDataArr = JSON.parse(item.productAttr);
+						
+						// 安全解析 productAttr，处理 undefined、null 或空字符串
 						let spDataStr = '';
-						for (let attr of spDataArr) {
-							spDataStr += attr.key;
-							spDataStr += ":";
-							spDataStr += attr.value;
-							spDataStr += ";";
+						try {
+							if (item.productAttr && item.productAttr !== 'undefined' && item.productAttr !== 'null' && item.productAttr.trim() !== '') {
+								let spDataArr = JSON.parse(item.productAttr);
+								if (Array.isArray(spDataArr) && spDataArr.length > 0) {
+									// 优先显示套餐信息，然后是版本信息，最后是价格
+									let packageInfo = '';
+									let versionInfo = '';
+									let priceInfo = '';
+									
+									for (let attr of spDataArr) {
+										if (attr && attr.key && attr.value) {
+											if (attr.key === '套餐') {
+												packageInfo = attr.value;
+											} else if (attr.key === '版本') {
+												versionInfo = attr.value;
+											} else if (attr.key === '价格') {
+												priceInfo = attr.value;
+											} else {
+												// 其他属性按原格式显示
+												spDataStr += attr.key + ":" + attr.value + ";";
+											}
+										}
+									}
+									
+									// 组合显示：套餐信息优先
+									if (packageInfo) {
+										spDataStr = packageInfo;
+										if (versionInfo && !packageInfo.includes(versionInfo)) {
+											spDataStr += ' (' + versionInfo + ')';
+										}
+									} else if (versionInfo) {
+										spDataStr = versionInfo;
+									}
+									
+									// 如果没有套餐和版本信息，使用其他属性
+									if (!spDataStr && spDataArr.length > 0) {
+										for (let attr of spDataArr) {
+											if (attr && attr.key && attr.value) {
+												spDataStr += attr.key + ":" + attr.value + ";";
+											}
+										}
+									}
+								}
+							}
+						} catch (e) {
+							console.warn('解析商品属性失败:', item.productAttr, e);
+							// 如果解析失败，尝试使用其他字段
+							if (item.productSubTitle) {
+								spDataStr = item.productSubTitle;
+							} else if (item.spData) {
+								try {
+									if (typeof item.spData === 'string') {
+										let spData = JSON.parse(item.spData);
+										if (Array.isArray(spData)) {
+											spData.forEach(attr => {
+												if (attr && attr.key && attr.value) {
+													spDataStr += attr.key + ":" + attr.value + ";";
+												}
+											});
+										}
+									}
+								} catch (e2) {
+									console.warn('解析 spData 失败:', e2);
+								}
+							}
 						}
-						item.spDataStr = spDataStr;
+						
+						// 如果没有解析到任何属性信息，显示默认值
+						item.spDataStr = spDataStr || '标准版';
 						return item;
 					});
 					this.cartList = cartList;
 					this.calcTotal(); //计算总价
+				}).catch(error => {
+					console.error('加载购物车列表失败:', error);
+					uni.showToast({
+						title: '加载购物车失败',
+						icon: 'none'
+					});
 				});
 			},
 			//监听image加载完成

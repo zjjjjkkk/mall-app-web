@@ -51,14 +51,6 @@
 				</text>
 				<text class="cell-more wanjia wanjia-gengduo-d"></text>
 			</view>
-			<view class="yt-list-cell b-b">
-				<view class="cell-icon hb">
-					积
-				</view>
-				<text class="cell-tit clamp">积分抵扣</text>
-				<input class="integration" type="number" v-model="useIntegration" placeholder="使用积分数量"
-					placeholder-class="placeholder" @input="handleIntegrationInput" />
-			</view>
 		</view>
 		<!-- 金额明细 -->
 		<view class="yt-list">
@@ -81,7 +73,21 @@
 			</view>
 			<view class="yt-list-cell b-b">
 				<text class="cell-tit clamp">积分抵扣</text>
-				<text class="cell-tip red">-￥{{ calcIntegrationAmount(useIntegration) }}</text>
+				<switch :checked="useIntegration" @change="onIntegrationChange" color="#fa436a" />
+			</view>
+			<view class="yt-list-cell b-b" v-if="useIntegration">
+				<text class="cell-tit clamp">可用积分</text>
+				<text class="cell-tip">{{ memberIntegration || 0 }} 积分</text>
+			</view>
+			<view class="yt-list-cell b-b" v-if="useIntegration">
+				<text class="cell-tit clamp">积分抵扣</text>
+				<text class="cell-tip red">-￥{{ integrationAmount }}</text>
+			</view>
+			<view class="yt-list-cell">
+				<text class="cell-tit clamp">支付后积分奖励</text>
+				<text class="cell-tip green">
+					约 {{ rewardPreview }} 分（含会员倍率{{ membershipMultiplier }}x）
+				</text>
 			</view>
 			<view class="yt-list-cell desc-cell">
 				<text class="cell-tit clamp">备注</text>
@@ -102,7 +108,15 @@
 		<!-- 优惠券面板 -->
 		<view class="mask" :class="maskState === 0 ? 'none' : maskState === 1 ? 'show' : ''" @click="toggleMask">
 			<view class="mask-content" @click.stop.prevent="stopPrevent">
+				<view class="coupon-header">
+					<text class="coupon-title">选择优惠券</text>
+					<text class="coupon-close" @click="toggleMask">×</text>
+				</view>
 				<!-- 优惠券页面，仿mt -->
+				<view v-if="couponList.length === 0" class="empty-coupon">
+					<text>暂无可用优惠券</text>
+					<text class="empty-tip">您可以在"优惠券"页面领取优惠券</text>
+				</view>
 				<view class="coupon-item" v-for="(item, index) in couponList" :key="index" @click="selectCoupon(item)">
 					<view class="con">
 						<view class="left">
@@ -110,7 +124,7 @@
 							<text class="time">有效期至{{ item.endTime | formatDateTime }}</text>
 						</view>
 						<view class="right">
-							<text class="price">{{ item.amount }}</text>
+							<text class="price">￥{{ item.amount }}</text>
 							<text>满{{ item.minPoint }}可用</text>
 						</view>
 
@@ -133,6 +147,7 @@ import {
 import {
 	formatDate
 } from '@/utils/date'
+import { fetchActiveMembership } from '@/api/member.js'
 export default {
 	data () {
 		return {
@@ -143,12 +158,39 @@ export default {
 			memberReceiveAddressList: [],
 			currentAddress: {},
 			cartPromotionItemList: [],
-			calcAmount: {},
+			calcAmount: { totalAmount: 0, promotionAmount: 0, freightAmount: 0, payAmount: 0 },
 			currCoupon: null,
-			useIntegration: 0,
-			integrationConsumeSetting: {},
-			memberIntegration: 0,
-			cartIds: []
+			cartIds: [],
+			membership: null,
+			useIntegration: false, // 是否使用积分抵扣
+			memberIntegration: 0, // 用户当前积分
+			useIntegrationAmount: 0 // 使用的积分数
+		}
+	},
+	computed: {
+		membershipMultiplier () {
+			if (this.membership && this.membership.multiplier) {
+				return this.membership.multiplier
+			}
+			return 1.0
+		},
+		rewardPreview () {
+			// 支付后积分预估：从CartPromotionItem的integration字段读取，并应用会员倍率
+			let totalGiftPoints = 0
+			for (let item of this.cartPromotionItemList) {
+				// CartPromotionItem中的integration字段就是商品配置的积分奖励
+				const giftPoint = item.integration || 0
+				totalGiftPoints += giftPoint * item.quantity
+			}
+			const points = Math.ceil(totalGiftPoints * this.membershipMultiplier)
+			return points
+		},
+		integrationAmount () {
+			// 计算积分抵扣金额：100积分=1元
+			if (!this.useIntegration || this.useIntegrationAmount <= 0) {
+				return '0.00'
+			}
+			return (this.useIntegrationAmount / 100).toFixed(2)
 		}
 	},
 	onLoad (option) {
@@ -185,6 +227,7 @@ export default {
 				return
 			}
 			this.loadData()
+			this.loadMembership()
 		} catch (error) {
 			console.error('解析购物车ID失败:', error)
 			uni.showToast({
@@ -263,8 +306,10 @@ export default {
 						}
 					}
 					this.calcAmount = response.data.calcAmount || {}
-					this.integrationConsumeSetting = response.data.integrationConsumeSetting || {}
+					// 获取用户积分
 					this.memberIntegration = response.data.memberIntegration || 0
+					// 重新计算实付金额
+					this.calcPayAmount()
 					
 					// 检查是否有商品数据
 					if (this.cartPromotionItemList.length === 0) {
@@ -333,11 +378,21 @@ export default {
 				couponId: this.currCoupon ? this.currCoupon.id : null,
 				cartIds: this.cartIds,
 				memberReceiveAddressId: this.currentAddress.id,
-				useIntegration: this.useIntegration,
+				useIntegration: this.useIntegration ? this.useIntegrationAmount : 0, // 使用的积分数
 				note: this.desc // 添加订单备注
 			}
 
 			console.log('提交订单参数:', orderParam)
+			console.log('当前选择的优惠券:', this.currCoupon)
+			
+			// 如果选择了优惠券，验证优惠券ID
+			if (this.currCoupon && !this.currCoupon.id) {
+				uni.showToast({
+					title: '优惠券信息错误，请重新选择',
+					icon: 'none'
+				})
+				return
+			}
 
 			generateOrder(orderParam).then(response => {
 				let orderId = response.data.order.id
@@ -362,6 +417,16 @@ export default {
 			}).catch(error => {
 				// 错误已在requestUtil中处理，这里可以添加额外的错误逻辑
 				console.error('订单生成失败:', error)
+				
+				// 如果是优惠券相关错误，清除已选择的优惠券并提示用户重新选择
+				if (error && error.message && (error.message.includes('优惠券') || error.message.includes('不可用'))) {
+					this.currCoupon = null
+					this.calcPayAmount()
+					// 重新加载可用优惠券列表
+					setTimeout(() => {
+						this.loadData()
+					}, 1000)
+				}
 			})
 		},
 		stopPrevent () { },
@@ -379,9 +444,24 @@ export default {
 			return { id: null }
 		},
 		selectCoupon (coupon) {
+			if (!coupon || !coupon.id) {
+				uni.showToast({
+					title: '优惠券信息错误',
+					icon: 'none'
+				})
+				return
+			}
+			
 			this.currCoupon = coupon
+			// 选择优惠券后重新计算实付金额
 			this.calcPayAmount()
 			this.toggleMask()
+			
+			uni.showToast({
+				title: '已选择优惠券',
+				icon: 'success',
+				duration: 1500
+			})
 		},
 		//计算支付金额
 		calcPayAmount () {
@@ -389,32 +469,42 @@ export default {
 			if (this.currCoupon != null) {
 				this.calcAmount.payAmount = this.calcAmount.payAmount - this.currCoupon.amount
 			}
-			if (this.useIntegration != 0) {
-				this.calcAmount.payAmount = this.calcAmount.payAmount - this.calcIntegrationAmount()
+			// 积分抵扣
+			if (this.useIntegration && this.useIntegrationAmount > 0) {
+				const integrationDeduct = this.useIntegrationAmount / 100
+				this.calcAmount.payAmount = this.calcAmount.payAmount - integrationDeduct
+			}
+			if (this.calcAmount.payAmount < 0) {
+				this.calcAmount.payAmount = 0
 			}
 		},
-		//积分转金额
-		calcIntegrationAmount (integration) {
-			if (this.integrationConsumeSetting == undefined || this.integrationConsumeSetting == null) {
-				return 0
-			}
-			if (this.integrationConsumeSetting.couponStatus == 0) {
-				return 0
-			}
-			return integration / this.integrationConsumeSetting.deductionPerAmount
-		},
-		handleIntegrationInput (event) {
-			let value = parseInt(event.detail.value) || 0
-			if (value > this.memberIntegration) {
-				this.useIntegration = this.memberIntegration
-				uni.showToast({
-					title: `您的积分只有${this.memberIntegration}`,
-					duration: 1000
-				})
+		// 积分抵扣开关变化
+		onIntegrationChange (e) {
+			this.useIntegration = e.detail.value
+			if (this.useIntegration) {
+				// 计算可使用的最大积分数（不超过订单金额）
+				const maxIntegration = Math.floor((this.calcAmount.totalAmount - this.calcAmount.promotionAmount - 
+					(this.currCoupon ? this.currCoupon.amount : 0)) * 100)
+				// 不超过用户拥有的积分
+				this.useIntegrationAmount = Math.min(maxIntegration, this.memberIntegration)
+				// 向下取整到100的倍数（100积分=1元）
+				this.useIntegrationAmount = Math.floor(this.useIntegrationAmount / 100) * 100
 			} else {
-				this.useIntegration = value
+				this.useIntegrationAmount = 0
 			}
+			// 重新计算实付金额
+			this.calcPayAmount()
 		},
+		async loadMembership () {
+			try {
+				const res = await fetchActiveMembership()
+				if (res && res.code === 200) {
+					this.membership = res.data
+				}
+			} catch (e) {
+				console.error('加载会员信息失败', e)
+			}
+		}
 	}
 }
 </script>
@@ -763,6 +853,55 @@ page {
 		transform: translateY(100%);
 		transition: .3s;
 		overflow-y: scroll;
+		
+		.coupon-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 30rpx;
+			background: #fff;
+			border-bottom: 1rpx solid #f5f5f5;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			
+			.coupon-title {
+				font-size: 32rpx;
+				font-weight: bold;
+				color: #333;
+			}
+			
+			.coupon-close {
+				font-size: 50rpx;
+				color: #999;
+				line-height: 1;
+				width: 50rpx;
+				height: 50rpx;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+		}
+		
+		.empty-coupon {
+			text-align: center;
+			padding: 100rpx 30rpx;
+			background: #fff;
+			margin: 20rpx;
+			border-radius: 16rpx;
+			
+			text {
+				display: block;
+				font-size: 28rpx;
+				color: #999;
+				margin-bottom: 20rpx;
+			}
+			
+			.empty-tip {
+				font-size: 24rpx;
+				color: #ccc;
+			}
+		}
 	}
 
 	&.none {

@@ -43,11 +43,11 @@ http.interceptor.request((config, cancel) => { /* 请求之前拦截器 */
 http.interceptor.response((response) => { /* 请求之后拦截器 */
 	const res = response.data;
 	if (res.code !== 200) {
-		//提示错误信息
+		//提示错误信息，增加显示时长以便用户看清
 		uni.showToast({
-			title:res.message || '请求失败',
-			duration:2000,
-			icon:'none'
+			title: res.message || '请求失败',
+			duration: 3000,
+			icon: 'none'
 		})
 		//401未登录处理
 		if (res.code === 401) {

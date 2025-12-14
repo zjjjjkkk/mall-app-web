@@ -50,17 +50,60 @@
 					@confirm="sendMessage"
 					:focus="inputFocus"
 					@input="onInput"
+					:disabled="loading"
 				/>
-				<button class="send-btn" @click="sendMessage" :disabled="!inputText.trim()">发送</button>
+				<button class="send-btn" @click="sendMessage" :disabled="!inputText.trim() || loading">
+					{{ loading ? '思考中...' : '发送' }}
+				</button>
 			</view>
 		</view>
+		
+		<!-- 订单选择弹窗 -->
+		<uni-popup ref="orderPopup" type="bottom" mask-click="false">
+			<view class="order-popup">
+				<view class="popup-header">
+					<text class="popup-title">请选择订单</text>
+					<text class="popup-close" @click="closeOrderPopup">×</text>
+				</view>
+				<scroll-view class="order-list" scroll-y>
+					<view v-if="orderList.length === 0" class="empty-orders">
+						<text>暂无订单</text>
+					</view>
+					<view 
+						v-for="(order, index) in orderList" 
+						:key="index" 
+						class="order-item"
+						@click="selectOrder(order)"
+					>
+						<view class="order-header">
+							<text class="order-sn">订单号：{{ order.orderSn || order.id }}</text>
+							<text class="order-status" :class="getStatusClass(order.status)">
+								{{ getStatusText(order.status) }}
+							</text>
+						</view>
+						<view class="order-info">
+							<text class="order-time">{{ formatDateTime(order.createTime) }}</text>
+							<text class="order-amount">¥{{ order.totalAmount || order.payAmount || 0 }}</text>
+						</view>
+						<view class="order-goods" v-if="order.orderItemList && order.orderItemList.length > 0">
+							<text class="goods-name">{{ order.orderItemList[0].productName }}</text>
+							<text class="goods-count" v-if="order.orderItemList.length > 1">
+								等{{ order.orderItemList.length }}件商品
+							</text>
+						</view>
+					</view>
+				</scroll-view>
+			</view>
+		</uni-popup>
 	</view>
 </template>
 
 <script>
-import { getLatestOrder } from '@/api/order.js'
+import { getLatestOrder, fetchOrderList } from '@/api/order.js'
+import { getAIResponse } from '@/api/customerService.js'
 import logger from '@/utils/logger.js'
 import { showError } from '@/utils/errorHandler.js'
+import { formatDate } from '@/utils/date'
 
 // 关键字回复配置
 const keywordReplies = {
@@ -98,7 +141,7 @@ const defaultReplies = [
 ]
 
 export default {
-	data() {
+		data() {
 		return {
 			showChat: false,
 			messageList: [],
@@ -115,7 +158,11 @@ export default {
 				'物流',
 				'优惠',
 				'发票'
-			]
+			],
+			useAI: true, // 是否使用AI智能回复
+			loading: false, // 是否正在获取AI回复
+			orderList: [], // 订单列表
+			currentOrderAction: null // 当前订单操作类型（refund/return/logistics/comment）
 		}
 	},
 	onLoad() {
@@ -176,7 +223,211 @@ export default {
 				this.showPresetQuestions = false
 			}
 		},
-		processMessage(userInput) {
+		async processMessage(userInput) {
+			// 检查是否是订单相关问题，如果是则先弹出订单选择
+			const orderAction = this.checkOrderRelatedQuestion(userInput)
+			if (orderAction) {
+				this.currentOrderAction = orderAction
+				await this.loadOrderList()
+				if (this.orderList.length > 0) {
+					this.$refs.orderPopup.open()
+					return
+				}
+			}
+			
+			// 如果启用AI，优先使用AI回复
+			if (this.useAI) {
+				this.loading = true
+				try {
+					// 构建对话历史
+					const history = this.buildConversationHistory()
+					
+					// 调用AI接口
+					const response = await getAIResponse(userInput, history)
+					
+					if (response.code === 200 && response.data) {
+						this.addSystemMessage(response.data)
+						
+						// 如果AI回复中包含报修相关，检查是否需要执行报修流程
+						if (userInput.includes('报修') || response.data.includes('报修')) {
+							setTimeout(() => {
+								this.handleRepairRequest()
+							}, 1000)
+						}
+						
+						// 检查AI回复后是否需要弹出订单选择
+						const aiOrderAction = this.checkOrderRelatedQuestion(response.data)
+						if (aiOrderAction && !orderAction) {
+							this.currentOrderAction = aiOrderAction
+							await this.loadOrderList()
+							if (this.orderList.length > 0) {
+								setTimeout(() => {
+									this.$refs.orderPopup.open()
+								}, 1000)
+							}
+						}
+					} else {
+						// AI失败，使用关键字匹配
+						this.processMessageWithKeywords(userInput)
+					}
+				} catch (error) {
+					console.error('AI客服回复失败:', error)
+					// AI失败，使用关键字匹配
+					this.processMessageWithKeywords(userInput)
+				} finally {
+					this.loading = false
+				}
+			} else {
+				// 不使用AI，直接使用关键字匹配
+				this.processMessageWithKeywords(userInput)
+			}
+		},
+		
+		// 检查是否是订单相关问题
+		checkOrderRelatedQuestion(text) {
+			if (!text) return null
+			const lowerText = text.toLowerCase()
+			
+			// 退款相关
+			if (lowerText.includes('退款') || lowerText.includes('退钱')) {
+				return 'refund'
+			}
+			// 退货相关
+			if (lowerText.includes('退货') || lowerText.includes('退回')) {
+				return 'return'
+			}
+			// 物流相关
+			if (lowerText.includes('物流') || lowerText.includes('快递') || lowerText.includes('发货') || 
+			    lowerText.includes('配送') || lowerText.includes('运输')) {
+				return 'logistics'
+			}
+			// 评价相关
+			if (lowerText.includes('评价') || lowerText.includes('评论') || lowerText.includes('评分')) {
+				return 'comment'
+			}
+			// 订单相关（通用）
+			if (lowerText.includes('订单') && (lowerText.includes('查看') || lowerText.includes('详情') || 
+			    lowerText.includes('状态') || lowerText.includes('进度'))) {
+				return 'detail'
+			}
+			
+			return null
+		},
+		
+		// 加载订单列表
+		async loadOrderList() {
+			try {
+				const response = await fetchOrderList({
+					pageNum: 1,
+					pageSize: 20,
+					status: -1 // 获取所有状态的订单
+				})
+				
+				if (response.code === 200 && response.data && response.data.list) {
+					this.orderList = response.data.list
+				} else {
+					this.orderList = []
+				}
+			} catch (error) {
+				console.error('加载订单列表失败:', error)
+				this.orderList = []
+			}
+		},
+		
+		// 选择订单
+		selectOrder(order) {
+			this.closeOrderPopup()
+			
+			// 根据操作类型跳转到相应页面
+			switch (this.currentOrderAction) {
+				case 'refund':
+					// 跳转到退款申请页面
+					uni.navigateTo({
+						url: `/pages/order/orderDetail?orderId=${order.id}`
+					})
+					this.addSystemMessage(`已为您打开订单详情，您可以在订单详情页申请退款。`)
+					break
+				case 'return':
+					// 跳转到退货申请页面
+					uni.navigateTo({
+						url: `/pages/order/orderDetail?orderId=${order.id}`
+					})
+					this.addSystemMessage(`已为您打开订单详情，您可以在订单详情页申请退货。`)
+					break
+				case 'logistics':
+					// 跳转到订单详情查看物流
+					uni.navigateTo({
+						url: `/pages/order/orderDetail?orderId=${order.id}`
+					})
+					this.addSystemMessage(`已为您打开订单详情，您可以在订单详情页查看物流信息。`)
+					break
+				case 'comment':
+					// 跳转到订单详情，然后可以评价
+					uni.navigateTo({
+						url: `/pages/order/orderDetail?orderId=${order.id}`
+					})
+					this.addSystemMessage(`已为您打开订单详情，您可以在订单详情页对商品进行评价。`)
+					break
+				case 'detail':
+				default:
+					// 跳转到订单详情
+					uni.navigateTo({
+						url: `/pages/order/orderDetail?orderId=${order.id}`
+					})
+					this.addSystemMessage(`已为您打开订单详情。`)
+					break
+			}
+			
+			this.currentOrderAction = null
+		},
+		
+		// 关闭订单弹窗
+		closeOrderPopup() {
+			this.$refs.orderPopup.close()
+		},
+		
+		// 获取订单状态文本
+		getStatusText(status) {
+			const statusMap = {
+				0: '待付款',
+				1: '待发货',
+				2: '待收货',
+				3: '已完成',
+				4: '已取消'
+			}
+			return statusMap[status] || '未知'
+		},
+		
+		// 获取订单状态样式类
+		getStatusClass(status) {
+			const classMap = {
+				0: 'status-wait-pay',
+				1: 'status-wait-ship',
+				2: 'status-wait-receive',
+				3: 'status-completed',
+				4: 'status-cancelled'
+			}
+			return classMap[status] || ''
+		},
+		
+		// 格式化日期时间
+		formatDateTime(time) {
+			if (!time) return ''
+			return formatDate(new Date(time), 'yyyy-MM-dd hh:mm')
+		},
+		
+		async processMessageWithKeywords(userInput) {
+			// 检查是否是订单相关问题
+			const orderAction = this.checkOrderRelatedQuestion(userInput)
+			if (orderAction) {
+				this.currentOrderAction = orderAction
+				await this.loadOrderList()
+				if (this.orderList.length > 0) {
+					this.$refs.orderPopup.open()
+					return
+				}
+			}
+			
 			// 转换为小写进行匹配
 			const lowerInput = userInput.toLowerCase()
 			
@@ -203,6 +454,22 @@ export default {
 				const randomReply = defaultReplies[Math.floor(Math.random() * defaultReplies.length)]
 				this.addSystemMessage(randomReply)
 			}
+		},
+		
+		buildConversationHistory() {
+			// 构建对话历史，只保留最近5轮对话
+			const recentMessages = this.messageList.slice(-10) // 最近10条消息（5轮对话）
+			const historyLines = []
+			
+			for (const msg of recentMessages) {
+				if (msg.type === 'user') {
+					historyLines.push(`user:${msg.content}`)
+				} else if (msg.type === 'system') {
+					historyLines.push(`assistant:${msg.content}`)
+				}
+			}
+			
+			return historyLines.join('\n')
 		},
 		async handleRepairRequest() {
 			try {
@@ -470,6 +737,141 @@ export default {
 				background: #007aff;
 				color: #fff;
 			}
+		}
+	}
+}
+
+/* 订单选择弹窗 */
+.order-popup {
+	background: #fff;
+	border-radius: 30rpx 30rpx 0 0;
+	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.popup-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 30rpx;
+	border-bottom: 1rpx solid #f5f5f5;
+	
+	.popup-title {
+		font-size: 32rpx;
+		font-weight: bold;
+		color: #333;
+	}
+	
+	.popup-close {
+		font-size: 50rpx;
+		color: #999;
+		line-height: 1;
+		width: 50rpx;
+		height: 50rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+}
+
+.order-list {
+	flex: 1;
+	max-height: calc(80vh - 120rpx);
+	padding: 20rpx;
+}
+
+.empty-orders {
+	text-align: center;
+	padding: 100rpx 0;
+	color: #999;
+	font-size: 28rpx;
+}
+
+.order-item {
+	background: #f9f9f9;
+	border-radius: 16rpx;
+	padding: 24rpx;
+	margin-bottom: 20rpx;
+	
+	.order-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 16rpx;
+		
+		.order-sn {
+			font-size: 26rpx;
+			color: #666;
+		}
+		
+		.order-status {
+			font-size: 24rpx;
+			padding: 4rpx 16rpx;
+			border-radius: 20rpx;
+			
+			&.status-wait-pay {
+				background: #fff3e0;
+				color: #ff9800;
+			}
+			
+			&.status-wait-ship {
+				background: #e3f2fd;
+				color: #2196f3;
+			}
+			
+			&.status-wait-receive {
+				background: #e8f5e9;
+				color: #4caf50;
+			}
+			
+			&.status-completed {
+				background: #f3e5f5;
+				color: #9c27b0;
+			}
+			
+			&.status-cancelled {
+				background: #fafafa;
+				color: #999;
+			}
+		}
+	}
+	
+	.order-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12rpx;
+		
+		.order-time {
+			font-size: 24rpx;
+			color: #999;
+		}
+		
+		.order-amount {
+			font-size: 28rpx;
+			font-weight: bold;
+			color: #ff6b35;
+		}
+	}
+	
+	.order-goods {
+		display: flex;
+		align-items: center;
+		gap: 10rpx;
+		
+		.goods-name {
+			font-size: 26rpx;
+			color: #333;
+			flex: 1;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		
+		.goods-count {
+			font-size: 24rpx;
+			color: #999;
 		}
 	}
 }

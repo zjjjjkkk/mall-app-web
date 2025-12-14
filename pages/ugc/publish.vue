@@ -45,6 +45,71 @@
       />
     </view>
 
+    <!-- 关联商品区域 -->
+    <view class="product-section">
+      <view class="section-label">
+        <text class="label-text">关联商品</text>
+        <text class="label-tip">可选，分享你喜欢的商品</text>
+      </view>
+      <view v-if="selectedProduct" class="selected-product">
+        <image :src="selectedProduct.pic" mode="aspectFill" class="product-image"></image>
+        <view class="product-info">
+          <text class="product-name">{{ selectedProduct.name }}</text>
+          <text class="product-price">￥{{ selectedProduct.price }}</text>
+        </view>
+        <text class="remove-product" @click="removeProduct">×</text>
+      </view>
+      <button v-else class="select-product-btn" @click="showProductSearch = true">
+        <text class="btn-icon">🛍️</text>
+        <text class="btn-text">选择商品</text>
+      </button>
+    </view>
+
+    <!-- 商品搜索弹窗 -->
+    <view v-if="showProductSearch" class="product-search-modal" @click="showProductSearch = false">
+      <view class="product-search-content" @click.stop>
+        <view class="search-header">
+          <text class="search-title">搜索商品</text>
+          <text class="close-btn" @click="showProductSearch = false">×</text>
+        </view>
+        <view class="search-input-wrapper">
+          <input 
+            v-model="productSearchKeyword" 
+            class="search-input" 
+            placeholder="输入商品名称搜索..."
+            @input="handleSearchInput"
+            @confirm="searchProducts"
+            :focus="showProductSearch"
+            confirm-type="search"
+            type="text"
+            :adjust-position="false"
+            :cursor-spacing="0"
+            :hold-keyboard="true"
+          />
+        </view>
+        <scroll-view scroll-y class="search-results" v-if="productSearchResults.length > 0">
+          <view 
+            v-for="product in productSearchResults" 
+            :key="product.id" 
+            class="product-item"
+            @click="selectProduct(product)"
+          >
+            <image :src="product.pic" mode="aspectFill" class="product-item-image"></image>
+            <view class="product-item-info">
+              <text class="product-item-name">{{ product.name }}</text>
+              <text class="product-item-price">￥{{ product.price }}</text>
+            </view>
+          </view>
+        </scroll-view>
+        <view v-if="searchingProduct" class="search-loading">
+          <text>搜索中...</text>
+        </view>
+        <view v-if="!searchingProduct && productSearchKeyword && productSearchResults.length === 0" class="search-empty">
+          <text>未找到相关商品</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 媒体上传区域 -->
     <view class="media-section">
       <view class="section-label">
@@ -92,6 +157,7 @@
 
 <script>
 import { createUgcPost } from '@/api/ugc'
+import { searchProductList } from '@/api/product'
 import { API_BASE_URL } from '@/utils/config'
 import { logTokenInfo, checkTokenFormat } from '@/utils/checkToken'
 
@@ -102,12 +168,19 @@ export default {
     return {
       form: {
         title: '',
-        content: ''
+        content: '',
+        productId: null
       },
       mediaTypes: ['TEXT', 'IMAGE', 'VIDEO', 'MIX'],
       mediaIndex: 0,
       images: [],
-      videos: []
+      videos: [],
+      selectedProduct: null, // 选中的商品
+      showProductSearch: false, // 是否显示商品搜索
+      productSearchKeyword: '', // 商品搜索关键词
+      productSearchResults: [], // 商品搜索结果
+      searchingProduct: false, // 是否正在搜索商品
+      searchTimer: null // 搜索防抖定时器
     }
   },
   onLoad () {
@@ -629,7 +702,8 @@ export default {
         coverUrl: this.images[0] || '',
         mediaUrls,
         mediaType: this.mediaTypes[this.mediaIndex],
-        status: 1
+        status: 1,
+        productId: this.form.productId
       }
       uni.showLoading({ title: '发布中...' })
       try {
@@ -663,6 +737,73 @@ export default {
         uni.showToast({ title: msg, icon: 'none', duration: 2000 })
         console.error('发布失败:', e)
       }
+    },
+    // 处理搜索输入（防抖）
+    handleSearchInput(e) {
+      // uni-app的input事件，值在e.detail.value中
+      const value = (e && e.detail && e.detail.value) || (e && e.target && e.target.value) || ''
+      // 直接更新v-model绑定的值
+      this.productSearchKeyword = value
+      // 清除之前的定时器
+      if (this.searchTimer) {
+        clearTimeout(this.searchTimer)
+      }
+      // 如果输入为空，清空结果
+      if (!this.productSearchKeyword || this.productSearchKeyword.trim() === '') {
+        this.productSearchResults = []
+        return
+      }
+      // 防抖：500ms后执行搜索
+      this.searchTimer = setTimeout(() => {
+        this.searchProducts()
+      }, 500)
+    },
+    // 搜索商品
+    async searchProducts() {
+      if (!this.productSearchKeyword || this.productSearchKeyword.trim() === '') {
+        this.productSearchResults = []
+        return
+      }
+      this.searchingProduct = true
+      try {
+        const res = await searchProductList({
+          keyword: this.productSearchKeyword,
+          pageNum: 1,
+          pageSize: 20
+        })
+        if (res && res.data && res.data.list) {
+          this.productSearchResults = res.data.list
+        } else {
+          this.productSearchResults = []
+        }
+      } catch (e) {
+        console.error('搜索商品失败:', e)
+        this.productSearchResults = []
+        uni.showToast({
+          title: '搜索失败，请重试',
+          icon: 'none'
+        })
+      } finally {
+        this.searchingProduct = false
+      }
+    },
+    // 选择商品
+    selectProduct(product) {
+      this.selectedProduct = product
+      this.form.productId = product.id
+      this.showProductSearch = false
+      this.productSearchKeyword = ''
+      this.productSearchResults = []
+      // 清除搜索定时器
+      if (this.searchTimer) {
+        clearTimeout(this.searchTimer)
+        this.searchTimer = null
+      }
+    },
+    // 移除商品
+    removeProduct() {
+      this.selectedProduct = null
+      this.form.productId = null
     }
   }
 }
@@ -979,5 +1120,220 @@ export default {
   font-size: 32rpx;
   font-weight: 600;
   color: #ffffff;
+}
+
+/* 关联商品区域 */
+.product-section {
+  background: #ffffff;
+  margin: 0 24rpx 20rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.06);
+}
+
+.selected-product {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  background: #f8f9fa;
+  border-radius: 16rpx;
+  margin-top: 16rpx;
+  position: relative;
+}
+
+.product-image {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  margin-right: 20rpx;
+}
+
+.product-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.product-name {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-price {
+  font-size: 32rpx;
+  color: #fa436a;
+  font-weight: 700;
+}
+
+.remove-product {
+  position: absolute;
+  top: 10rpx;
+  right: 10rpx;
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 77, 79, 0.9);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 32rpx;
+  font-weight: bold;
+}
+
+.select-product-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: #fff;
+  border: none;
+  border-radius: 16rpx;
+  font-size: 0;
+  margin-top: 16rpx;
+}
+
+.select-product-btn .btn-icon {
+  font-size: 32rpx;
+}
+
+.select-product-btn .btn-text {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+/* 商品搜索弹窗 */
+.product-search-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-search-content {
+  width: 90%;
+  max-width: 600rpx;
+  max-height: 80vh;
+  background: #ffffff;
+  border-radius: 24rpx;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.search-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.close-btn {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  color: #999;
+}
+
+.search-input-wrapper {
+  padding: 20rpx 30rpx;
+}
+
+.search-input {
+  width: 100%;
+  padding: 20rpx 24rpx;
+  background: #f8f9fa;
+  border: 2rpx solid #e9ecef;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  color: #333;
+  box-sizing: border-box;
+  line-height: 1.5;
+  min-height: 80rpx;
+  display: block;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search-input:focus {
+  border-color: #667eea;
+  background: #ffffff;
+  box-shadow: 0 0 0 4rpx rgba(102, 126, 234, 0.1);
+  outline: none;
+}
+
+.search-results {
+  flex: 1;
+  max-height: 60vh;
+  padding: 20rpx 30rpx;
+}
+
+.product-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  background: #f8f9fa;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.product-item-image {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 12rpx;
+  margin-right: 20rpx;
+}
+
+.product-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.product-item-name {
+  font-size: 26rpx;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-item-price {
+  font-size: 28rpx;
+  color: #fa436a;
+  font-weight: 600;
+}
+
+.search-loading,
+.search-empty {
+  padding: 60rpx;
+  text-align: center;
+  color: #999;
+  font-size: 28rpx;
 }
 </style>

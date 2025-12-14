@@ -70,13 +70,33 @@
 					}
 					window.location.href = API_BASE_URL+"/alipay/webPay?outTradeNo=" + this.orderInfo.orderSn + "&subject=" + this.orderInfo.receiverName + "的商品订单" + "&totalAmount=" + this.orderInfo.totalAmount
 				}else{
+					console.log('调用支付成功接口，订单ID:', this.orderId, '支付方式:', this.payType);
 					payOrderSuccess({
 						orderId: this.orderId,
 						payType: this.payType
 					}).then(response => {
-						uni.redirectTo({
-							url: '/pages/money/paySuccess'
-						})
+						console.log('支付成功接口返回:', response);
+						if (response && response.code === 200) {
+							// 支付成功后刷新用户信息（包括积分）
+							this.$store.dispatch('getUserInfo').catch(err => {
+								console.error('刷新用户信息失败:', err);
+							});
+							uni.redirectTo({
+								url: '/pages/money/paySuccess'
+							})
+						} else {
+							uni.showToast({
+								title: response?.message || '支付处理失败',
+								icon: 'none'
+							});
+						}
+					}).catch(error => {
+						console.error('支付成功接口调用失败:', error);
+						uni.showToast({
+							title: '支付处理失败，请稍后重试',
+							icon: 'none',
+							duration: 2000
+						});
 					});
 				}
 

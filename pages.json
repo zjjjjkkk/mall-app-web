@@ -23,6 +23,12 @@
 			}
 		},
 		{
+			"path": "pages/product/compare",
+			"style": {
+				"navigationBarTitleText": "商品对比"
+			}
+		},
+		{
 			"path": "pages/set/set",
 			"style": {
 				"navigationBarTitleText": "设置"
@@ -370,6 +376,13 @@
 			"path": "pages/notification/notification",
 			"style": {
 				"navigationBarTitleText": "消息通知",
+				"enablePullDownRefresh": true
+			}
+		},
+		{
+			"path": "pages/points/points",
+			"style": {
+				"navigationBarTitleText": "积分与成长值",
 				"enablePullDownRefresh": true
 			}
 		}

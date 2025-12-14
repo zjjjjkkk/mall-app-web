@@ -2,9 +2,8 @@
 /**
  * vuex管理登陆状态，具体可以参考官方登陆模板示例
  */
-import {
-	mapMutations
-} from 'vuex'
+import { mapMutations } from 'vuex'
+import store from '@/store/index.js'
 import { logTokenInfo, checkTokenFormat, getTokenInfo } from '@/utils/checkToken'
 
 export default {
@@ -13,12 +12,17 @@ export default {
 	},
 	onLaunch: function () {
 		let userInfo = uni.getStorageSync('userInfo') || ''
-		if (userInfo.id) {
-			//更新登陆状态
+		let token = uni.getStorageSync('token') || ''
+		if (userInfo.id && token) {
+			// 如果有token，先恢复登录状态，然后刷新用户信息
 			uni.getStorage({
 				key: 'userInfo',
 				success: (res) => {
 					this.login(res.data)
+					// 刷新用户信息，确保积分等数据是最新的
+					store.dispatch('getUserInfo').catch(err => {
+						console.error('启动时刷新用户信息失败:', err)
+					})
 				}
 			})
 		}
@@ -348,6 +352,16 @@ export default {
 
 .icon-zuanshi:before {
 	content: "\e615";
+}
+
+/* 积分图标 */
+.icon-jifen:before {
+	content: "\e70b"; /* 使用星星图标，表示积分 */
+}
+
+/* 成长值图标 */
+.icon-chengzhang:before {
+	content: "\e615"; /* 使用钻石图标，表示成长值 */
 }
 
 .icon-zuo:before {

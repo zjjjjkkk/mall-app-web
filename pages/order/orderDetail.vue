@@ -32,7 +32,7 @@
 				<image :src="item.productPic" mode="aspectFill" class="item-image"></image>
 				<view class="item-info">
 					<text class="item-name">{{ item.productName }}</text>
-					<text class="item-attr" v-if="item.productAttr">{{ item.productAttr }}</text>
+					<text class="item-attr" v-if="item.productAttr">{{ formatProductAttr(item.productAttr) }}</text>
 					<view class="item-bottom">
 						<text class="item-price">¥{{ item.productPrice }}</text>
 						<text class="item-quantity">x{{ item.productQuantity }}</text>
@@ -41,9 +41,10 @@
 				<button 
 					class="comment-btn" 
 					v-if="order.status === 3" 
-					@click="goToComment(item)"
+					@click="handleCommentAction(item)"
+					:class="{ 'view-comment-btn': item.commentStatus === 2 }"
 				>
-					评价
+					{{ getCommentButtonText(item) }}
 				</button>
 			</view>
 		</view>
@@ -52,7 +53,7 @@
 		<view class="order-info">
 			<view class="order-sn">订单编号：{{ order.orderSn || '未知' }}</view>
 			<view class="order-amount">订单金额：¥{{ order.totalAmount || 0 }}</view>
-			<!-- 修复按钮显示逻辑：兼容hasRefund字段不存在的情况 -->
+			<!-- 修复按钮显示逻辑：已退款的订单不显示申请退款按钮 -->
 			<button 
 				class="refund-btn" 
 				v-if="order.status !== 4 && !order.hasRefund && (order.status === 1 || order.status === 2 || order.status === 3)" 
@@ -65,31 +66,77 @@
 		<!-- 退款申请弹窗 -->
 		<uni-popup ref="refundPopup" type="center" mask-click="false">
 			<view class="refund-popup">
-				<view class="popup-title">申请退款</view>
+				<view class="popup-header">
+					<text class="popup-title">申请退款</text>
+					<text class="popup-close" @click="closeRefundApply">×</text>
+				</view>
+				
+				<!-- 订单商品信息 -->
+				<view class="refund-order-goods" v-if="order.orderItems && order.orderItems.length > 0">
+					<view class="goods-title">订单商品</view>
+					<view class="goods-item" v-for="(item, index) in order.orderItems" :key="index">
+						<image :src="item.productPic" mode="aspectFill" class="goods-image"></image>
+						<view class="goods-info">
+							<text class="goods-name">{{ item.productName }}</text>
+							<text class="goods-attr" v-if="item.productAttr">{{ formatProductAttr(item.productAttr) }}</text>
+							<view class="goods-price-row">
+								<text class="goods-price">¥{{ item.productPrice }}</text>
+								<text class="goods-quantity">x{{ item.productQuantity }}</text>
+							</view>
+						</view>
+					</view>
+				</view>
+				
+				<!-- 订单信息 -->
+				<view class="refund-order-info">
+					<view class="info-row">
+						<text class="info-label">订单编号：</text>
+						<text class="info-value">{{ order.orderSn || '未知' }}</text>
+					</view>
+					<view class="info-row">
+						<text class="info-label">订单金额：</text>
+						<text class="info-value price">¥{{ order.totalAmount || 0 }}</text>
+					</view>
+				</view>
+				
+				<!-- 退款表单 -->
 				<view class="popup-form">
 					<view class="form-item">
-						<text class="label">退款金额</text>
-						<input 
-							type="number" 
-							v-model="refundAmount" 
-							:placeholder="`最多¥${order.totalAmount || 0}`"
-							maxlength="10"
-						/>
+						<text class="label">退款金额 <text class="required">*</text></text>
+						<view class="input-wrapper">
+							<text class="input-prefix">¥</text>
+							<input 
+								type="digit" 
+								v-model="refundAmount" 
+								:placeholder="`最多¥${order.totalAmount || 0}`"
+								maxlength="10"
+								class="refund-input"
+							/>
+						</view>
 					</view>
 					<view class="form-item">
-						<text class="label">退款原因</text>
+						<text class="label">退款原因 <text class="required">*</text></text>
 						<picker @change="selectReason" :value="reasonIndex" :range="refundReasons">
-							<view class="picker-text">{{ refundReasons[reasonIndex] }}</view>
+							<view class="picker-wrapper">
+								<text class="picker-text">{{ refundReasons[reasonIndex] }}</text>
+								<text class="picker-arrow">›</text>
+							</view>
 						</picker>
 					</view>
 					<view class="form-item">
 						<text class="label">备注说明</text>
-						<textarea v-model="refundRemark" placeholder="选填，补充退款原因"></textarea>
+						<textarea 
+							v-model="refundRemark" 
+							placeholder="选填，补充退款原因"
+							class="refund-textarea"
+							maxlength="200"
+						></textarea>
 					</view>
 				</view>
+				
 				<view class="popup-btn-group">
 					<button class="cancel-btn" @click="closeRefundApply">取消</button>
-					<button class="confirm-btn" @click="submitRefundApply" :disabled="submitting">
+					<button class="confirm-btn" @click="submitRefundApply" :disabled="submitting || !refundAmount">
 						{{ submitting ? '提交中...' : '确认提交' }}
 					</button>
 				</view>
@@ -100,6 +147,7 @@
 
 <script>
 import { fetchOrderDetail, createOrderReturnApply } from '@/api/order.js'
+import { getCommentStatus } from '@/api/comment.js'
 
 export default {
 	data() {
@@ -128,16 +176,18 @@ export default {
 				const res = await fetchOrderDetail(orderId)
 				if (res.code === 200) {
 					this.order = res.data
-					// 补全缺失的hasRefund字段
-					if (this.order.hasRefund === undefined) {
-						this.order.hasRefund = false
-					}
 					// 统一订单商品列表字段名
 					if (this.order.orderItemList && !this.order.orderItems) {
 						this.order.orderItems = this.order.orderItemList
 					}
+					// 检查订单是否已退款
+					await this.checkRefundStatus()
 					// 设置订单状态
 					this.setOrderStatus(this.order.status)
+					// 加载每个商品的评价状态
+					if (this.order.status === 3 && this.order.orderItems) {
+						this.loadCommentStatuses()
+					}
 				} else {
 					uni.showToast({ title: res.msg || '获取订单失败', icon: 'none' })
 				}
@@ -160,6 +210,33 @@ export default {
 				this.setOrderStatus(2)
 			}
 		},
+		
+		// 检查订单退款状态
+		async checkRefundStatus() {
+			if (!this.order || !this.order.id) {
+				return
+			}
+			try {
+				// 查询该订单的退款记录
+				const { getOrderReturnApplyList } = await import('@/api/order.js')
+				const res = await getOrderReturnApplyList({})
+				if (res.code === 200 && res.data && res.data.list) {
+					// 查找是否有该订单的退款记录（状态为待处理、处理中或已完成）
+					const refundList = res.data.list
+					const hasRefund = refundList.some(refund => {
+						return refund.orderId === this.order.id && 
+						       (refund.refundStatus === 0 || refund.refundStatus === 1 || refund.refundStatus === 3)
+					})
+					this.$set(this.order, 'hasRefund', hasRefund)
+				} else {
+					this.$set(this.order, 'hasRefund', false)
+				}
+			} catch (err) {
+				console.error('检查退款状态失败:', err)
+				// 如果检查失败，默认设置为未退款
+				this.$set(this.order, 'hasRefund', false)
+			}
+		},
 
 		// 设置订单状态文本和图标
 		setOrderStatus(status) {
@@ -179,7 +256,8 @@ export default {
 
 		// 打开退款申请弹窗
 		openRefundApply() {
-			this.refundAmount = ''
+			// 默认退款金额为订单总金额
+			this.refundAmount = this.order.totalAmount || ''
 			this.reasonIndex = 0
 			this.refundRemark = ''
 			this.$refs.refundPopup.open()
@@ -238,6 +316,67 @@ export default {
 				this.submitting = false
 			}
 		},
+		// 加载所有商品的评价状态
+		async loadCommentStatuses() {
+			if (!this.order.orderItems || this.order.orderItems.length === 0) {
+				return
+			}
+			
+			// 先初始化所有商品的评价状态为0（未评价），确保按钮能显示
+			for (let item of this.order.orderItems) {
+				if (item.productId && item.commentStatus === undefined) {
+					this.$set(item, 'commentStatus', 0)
+				}
+			}
+			
+			// 然后异步加载真实的评价状态
+			for (let item of this.order.orderItems) {
+				if (item.productId) {
+					try {
+						const res = await getCommentStatus(item.productId)
+						if (res.code === 200) {
+							// 使用Vue.set确保响应式
+							this.$set(item, 'commentStatus', res.data)
+						} else {
+							// 如果接口返回失败，保持默认值0
+							this.$set(item, 'commentStatus', 0)
+						}
+					} catch (error) {
+						console.error('获取评价状态失败:', error)
+						// 默认设置为未评价
+						this.$set(item, 'commentStatus', 0)
+					}
+				}
+			}
+		},
+		
+		// 获取评价按钮文本
+		getCommentButtonText(item) {
+			const status = item.commentStatus
+			if (status === 2) {
+				return '查看评价'
+			} else if (status === 1) {
+				return '追评'
+			} else {
+				// status === 0 或 undefined，显示"评价"
+				return '评价'
+			}
+		},
+		
+		// 处理评价按钮点击
+		handleCommentAction(item) {
+			const status = item.commentStatus
+			if (status === 2) {
+				// 已评价和追评，跳转到商品评价列表
+				uni.navigateTo({
+					url: `/pages/product/commentList?productId=${item.productId}`
+				})
+			} else {
+				// 未评价或可追评，跳转到评价页面
+				this.goToComment(item)
+			}
+		},
+		
 		// 跳转到评价页面
 		goToComment(item) {
 			const params = {
@@ -252,6 +391,25 @@ export default {
 			uni.navigateTo({
 				url: `/pages/order/comment?${query}`
 			})
+		},
+		
+		// 格式化商品属性，只显示属性值
+		formatProductAttr(jsonAttr) {
+			if (!jsonAttr) {
+				return ''
+			}
+			try {
+				// 尝试解析JSON字符串
+				let attrArr = JSON.parse(jsonAttr)
+				if (Array.isArray(attrArr)) {
+					// 只提取value值，用空格连接
+					return attrArr.map(attr => attr.value || '').filter(val => val).join(' ')
+				}
+				return jsonAttr
+			} catch (e) {
+				// 如果不是JSON格式，直接返回原值
+				return jsonAttr
+			}
 		}
 	}
 }
@@ -426,57 +584,287 @@ export default {
 	border-radius: 8upx;
 	padding: 12upx 24upx;
 	font-size: 26upx;
+	border: none;
+}
+.view-comment-btn {
+	background: #999 !important;
 }
 .refund-popup {
-	width: 80%;
+	width: 90%;
+	max-width: 680upx;
 	background: #fff;
-	border-radius: 16upx;
-	padding: 30upx;
+	border-radius: 24upx;
+	overflow: hidden;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: column;
 }
+
+.popup-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 40upx 30upx 30upx;
+	border-bottom: 1upx solid #f0f0f0;
+}
+
 .popup-title {
-	font-size: 32upx;
-	font-weight: 500;
-	text-align: center;
-	margin-bottom: 30upx;
+	font-size: 36upx;
+	font-weight: 600;
+	color: #333;
 }
-.form-item {
+
+.popup-close {
+	font-size: 48upx;
+	color: #999;
+	line-height: 1;
+	width: 48upx;
+	height: 48upx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* 订单商品区域 */
+.refund-order-goods {
+	padding: 30upx;
+	border-bottom: 1upx solid #f0f0f0;
+	max-height: 300upx;
+	overflow-y: auto;
+}
+
+.goods-title {
+	font-size: 28upx;
+	font-weight: 600;
+	color: #333;
 	margin-bottom: 20upx;
 }
+
+.goods-item {
+	display: flex;
+	margin-bottom: 20upx;
+	padding-bottom: 20upx;
+	border-bottom: 1upx solid #f5f5f5;
+}
+
+.goods-item:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
+}
+
+.goods-image {
+	width: 120upx;
+	height: 120upx;
+	border-radius: 12upx;
+	margin-right: 20upx;
+	flex-shrink: 0;
+}
+
+.goods-info {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+}
+
+.goods-name {
+	font-size: 28upx;
+	color: #333;
+	margin-bottom: 8upx;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+
+.goods-attr {
+	font-size: 24upx;
+	color: #999;
+	margin-bottom: 12upx;
+}
+
+.goods-price-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.goods-price {
+	font-size: 28upx;
+	color: #fa436a;
+	font-weight: 600;
+}
+
+.goods-quantity {
+	font-size: 24upx;
+	color: #999;
+}
+
+/* 订单信息 */
+.refund-order-info {
+	padding: 30upx;
+	background: #f8f8f8;
+	border-bottom: 1upx solid #f0f0f0;
+}
+
+.info-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 16upx;
+}
+
+.info-row:last-child {
+	margin-bottom: 0;
+}
+
+.info-label {
+	font-size: 28upx;
+	color: #666;
+}
+
+.info-value {
+	font-size: 28upx;
+	color: #333;
+	font-weight: 500;
+}
+
+.info-value.price {
+	color: #fa436a;
+	font-weight: 600;
+}
+
+/* 表单区域 */
+.popup-form {
+	padding: 30upx;
+	flex: 1;
+	overflow-y: auto;
+}
+
+.form-item {
+	margin-bottom: 30upx;
+}
+
+.form-item:last-child {
+	margin-bottom: 0;
+}
+
 .label {
 	font-size: 28upx;
 	color: #333;
-	margin-bottom: 10upx;
+	margin-bottom: 16upx;
 	display: block;
+	font-weight: 500;
 }
-input, textarea {
-	border: 1upx solid #e5e5e5;
-	border-radius: 8upx;
-	padding: 12upx;
+
+.required {
+	color: #fa436a;
+	margin-left: 4upx;
+}
+
+.input-wrapper {
+	display: flex;
+	align-items: center;
+	border: 2upx solid #e5e5e5;
+	border-radius: 12upx;
+	padding: 0 20upx;
+	background: #fff;
+	transition: border-color 0.3s;
+}
+
+.input-wrapper:focus-within {
+	border-color: #fa436a;
+}
+
+.input-prefix {
 	font-size: 28upx;
-	width: 100%;
+	color: #333;
+	margin-right: 8upx;
 }
+
+.refund-input {
+	flex: 1;
+	padding: 20upx 0;
+	font-size: 28upx;
+	color: #333;
+	border: none;
+	background: transparent;
+}
+
+.picker-wrapper {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border: 2upx solid #e5e5e5;
+	border-radius: 12upx;
+	padding: 20upx;
+	background: #fff;
+}
+
 .picker-text {
-	border: 1upx solid #e5e5e5;
-	border-radius: 8upx;
-	padding: 12upx;
+	font-size: 28upx;
+	color: #333;
+}
+
+.picker-arrow {
+	font-size: 32upx;
+	color: #999;
+}
+
+.refund-textarea {
+	border: 2upx solid #e5e5e5;
+	border-radius: 12upx;
+	padding: 20upx;
 	font-size: 28upx;
 	width: 100%;
+	min-height: 120upx;
+	background: #fff;
+	color: #333;
+	box-sizing: border-box;
 }
+
+.refund-textarea:focus {
+	border-color: #fa436a;
+}
+
 .popup-btn-group {
 	display: flex;
 	justify-content: space-between;
-	margin-top: 30upx;
+	padding: 30upx;
+	border-top: 1upx solid #f0f0f0;
+	gap: 20upx;
 }
+
 .cancel-btn {
 	flex: 1;
-	margin-right: 10upx;
+	height: 88upx;
+	line-height: 88upx;
+	text-align: center;
 	background: #f5f5f5;
-	color: #333;
+	color: #666;
+	border-radius: 12upx;
+	font-size: 30upx;
+	border: none;
 }
+
 .confirm-btn {
 	flex: 1;
-	margin-left: 10upx;
-	background: #f5222d;
+	height: 88upx;
+	line-height: 88upx;
+	text-align: center;
+	background: linear-gradient(135deg, #fa436a 0%, #ff6b8a 100%);
 	color: #fff;
+	border-radius: 12upx;
+	font-size: 30upx;
+	font-weight: 600;
+	border: none;
+	box-shadow: 0 4upx 12upx rgba(250, 67, 106, 0.3);
+}
+
+.confirm-btn[disabled] {
+	background: #ccc;
+	box-shadow: none;
+	opacity: 0.6;
 }
 </style>

@@ -30,8 +30,8 @@
 		<view class="carousel-section">
 			<swiper class="carousel" circular @change="swiperChange">
 				<swiper-item v-for="(item, index) in advertiseList" :key="index" class="carousel-item"
-					@click="navToAdvertisePage(item)">
-					<image :src="item.pic" />
+					@click="navToAdvertisePage(item)" v-if="item && item.pic">
+					<image :src="item.pic || '/static/images/default-product.png'" />
 				</swiper-item>
 			</swiper>
 			<!-- 自定义swiper指示器 -->
@@ -84,12 +84,12 @@
 			<scroll-view class="brand-scroll" scroll-x>
 				<view class="brand-list">
 					<view v-for="(item, index) in brandList" :key="index" class="brand-item"
-						@click="navToBrandDetailPage(item)">
+						@click="navToBrandDetailPage(item)" v-if="item && item.logo">
 						<view class="brand-image-wrapper">
-							<image :src="item.logo" mode="aspectFit"></image>
+							<image :src="item.logo || '/static/images/default-brand.png'" mode="aspectFit"></image>
 						</view>
-						<text class="brand-name clamp">{{ item.name }}</text>
-						<text class="brand-count">{{ item.productCount }}件商品</text>
+						<text class="brand-name clamp">{{ item.name || '' }}</text>
+						<text class="brand-count">{{ item.productCount || 0 }}件商品</text>
 					</view>
 				</view>
 			</scroll-view>
@@ -119,14 +119,14 @@
 			<scroll-view class="product-scroll" scroll-x>
 				<view class="product-list-horizontal">
 					<view v-for="(item, index) in homeFlashPromotion.productList" :key="index" class="product-item-horizontal"
-						@click="navToDetailPage(item)">
+						@click="navToDetailPage(item)" v-if="item && item.pic">
 						<view class="product-image-wrapper">
-							<image :src="item.pic" mode="aspectFill"></image>
+							<image :src="item.pic || '/static/images/default-product.png'" mode="aspectFill"></image>
 							<view class="flash-badge">秒杀</view>
 						</view>
 						<view class="product-info">
-							<text class="product-price">￥{{ item.price }}</text>
-							<text class="product-name clamp">{{ item.name }}</text>
+							<text class="product-price">￥{{ item.price || 0 }}</text>
+							<text class="product-name clamp">{{ item.name || '' }}</text>
 						</view>
 					</view>
 				</view>
@@ -148,15 +148,15 @@
 			<scroll-view class="product-scroll" scroll-x>
 				<view class="product-list-horizontal">
 					<view v-for="(item, index) in newProductList" :key="index" class="product-item-horizontal"
-						@click="navToDetailPage(item)">
+						@click="navToDetailPage(item)" v-if="item && item.pic">
 						<view class="product-image-wrapper">
-							<image :src="item.pic" mode="aspectFill"></image>
+							<image :src="item.pic || '/static/images/default-product.png'" mode="aspectFill"></image>
 							<view class="new-badge">新品</view>
 						</view>
 						<view class="product-info">
-							<text class="product-name clamp">{{ item.name }}</text>
-							<text class="product-subtitle clamp">{{ item.subTitle }}</text>
-							<text class="product-price">￥{{ item.price }}</text>
+							<text class="product-name clamp">{{ item.name || '' }}</text>
+							<text class="product-subtitle clamp">{{ item.subTitle || '' }}</text>
+							<text class="product-price">￥{{ item.price || 0 }}</text>
 						</view>
 					</view>
 				</view>
@@ -176,17 +176,17 @@
 				<text class="section-more">更多 ></text>
 			</view>
 			<view class="hot-product-grid">
-				<view v-for="(item, index) in hotProductList" :key="index" class="hot-product-item"
-					@click="navToDetailPage(item)">
+				<view v-for="(item, index) in hotProductList.slice(0, 5)" :key="index" class="hot-product-item"
+					@click="navToDetailPage(item)" v-if="item && item.pic">
 					<view class="hot-product-image">
-						<image :src="item.pic" mode="aspectFill"></image>
+						<image :src="item.pic || '/static/images/default-product.png'" mode="aspectFill"></image>
 						<view class="hot-badge">热销</view>
 					</view>
 					<view class="hot-product-content">
-						<text class="hot-product-name clamp">{{ item.name }}</text>
-						<text class="hot-product-subtitle clamp">{{ item.subTitle }}</text>
+						<text class="hot-product-name clamp">{{ item.name || '' }}</text>
+						<text class="hot-product-subtitle clamp">{{ item.subTitle || '' }}</text>
 						<view class="hot-product-footer">
-							<text class="hot-product-price">￥{{ item.price }}</text>
+							<text class="hot-product-price">￥{{ item.price || 0 }}</text>
 							<text class="hot-product-tag">热卖中</text>
 						</view>
 					</view>
@@ -206,16 +206,16 @@
 				</view>
 			</view>
 			<view class="product-grid">
-				<view v-for="(item, index) in recommendProductList" :key="index" class="product-card"
-					@click="navToDetailPage(item)">
+				<view v-for="(item, index) in recommendProductList.slice(0, 10)" :key="index" class="product-card"
+					@click="navToDetailPage(item)" v-if="item && item.pic">
 					<view class="product-image-container">
-						<image :src="item.pic" mode="aspectFill"></image>
+						<image :src="item.pic || '/static/images/default-product.png'" mode="aspectFill"></image>
 					</view>
 					<view class="product-card-content">
-						<text class="product-card-name clamp">{{ item.name }}</text>
-						<text class="product-card-subtitle clamp">{{ item.subTitle }}</text>
+						<text class="product-card-name clamp">{{ item.name || '' }}</text>
+						<text class="product-card-subtitle clamp">{{ item.subTitle || '' }}</text>
 						<view class="product-card-footer">
-							<text class="product-card-price">￥{{ item.price }}</text>
+							<text class="product-card-price">￥{{ item.price || 0 }}</text>
 							<text class="product-card-sale" v-if="item.sale">已售{{ item.sale }}</text>
 						</view>
 					</view>
@@ -255,7 +255,7 @@ export default {
 			recommendProductList: [],
 			recommendParams: {
 				pageNum: 1,
-				pageSize: 4
+				pageSize: 10
 			},
 			loadingType: 'more',
 			currentLocation: null,
@@ -271,22 +271,33 @@ export default {
 		this.recommendParams.pageNum = 1
 		this.loadData()
 	},
-	//加载更多
-	onReachBottom () {
-		this.recommendParams.pageNum++
-		this.loadingType = 'loading'
-		fetchRecommendProductList(this.recommendParams).then(response => {
-			let addProductList = response.data
-			if (response.data.length === 0) {
-				//没有更多了
-				this.recommendParams.pageNum--
+		//加载更多（猜你喜欢只展示10个商品，禁用加载更多）
+		onReachBottom () {
+			// 猜你喜欢只展示10个商品，不加载更多
+			if (this.recommendProductList.length >= 10) {
 				this.loadingType = 'nomore'
-			} else {
-				this.recommendProductList = this.recommendProductList.concat(addProductList)
-				this.loadingType = 'more'
+				return
 			}
-		})
-	},
+			this.recommendParams.pageNum++
+			this.loadingType = 'loading'
+			fetchRecommendProductList(this.recommendParams).then(response => {
+				// 过滤掉 null 值和没有 pic 的商品
+				let addProductList = (response.data || []).filter(item => item != null && item.pic != null)
+				// 限制总数不超过10个
+				const remaining = 10 - this.recommendProductList.length
+				const limitedList = addProductList.slice(0, remaining)
+				
+				if (limitedList.length === 0 || this.recommendProductList.length + limitedList.length >= 10) {
+					this.loadingType = 'nomore'
+					if (this.recommendParams.pageNum > 1) {
+						this.recommendParams.pageNum--
+					}
+				} else {
+					this.loadingType = 'more'
+				}
+				this.recommendProductList = this.recommendProductList.concat(limitedList)
+			})
+		},
 	computed: {
 		cutDownTime () {
 			let endTime = new Date(this.homeFlashPromotion.endTime)
@@ -325,15 +336,33 @@ export default {
 			fetchContent().then(response => {
 				console.log("onLoad", response.data)
 				this.getCurrentLocation()
-				this.advertiseList = response.data.advertiseList
+				// 过滤掉 null 值并确保数据安全
+				this.advertiseList = (response.data.advertiseList || []).filter(item => item != null)
 				this.swiperLength = this.advertiseList.length
 
-				this.brandList = response.data.brandList
-				this.homeFlashPromotion = response.data.homeFlashPromotion
-				this.newProductList = response.data.newProductList
-				this.hotProductList = response.data.hotProductList
+				this.brandList = (response.data.brandList || []).filter(item => item != null)
+				
+				// 处理秒杀数据
+				if (response.data.homeFlashPromotion) {
+					const flashPromotion = response.data.homeFlashPromotion
+					if (flashPromotion.productList) {
+						flashPromotion.productList = flashPromotion.productList.filter(item => item != null && item.pic != null)
+					}
+					this.homeFlashPromotion = flashPromotion
+				} else {
+					this.homeFlashPromotion = null
+				}
+				
+				// 过滤新品列表中的 null 值
+				this.newProductList = (response.data.newProductList || []).filter(item => item != null && item.pic != null)
+				
+				// 过滤人气推荐列表中的 null 值
+				this.hotProductList = (response.data.hotProductList || []).filter(item => item != null && item.pic != null)
+				
 				fetchRecommendProductList(this.recommendParams).then(response => {
-					this.recommendProductList = response.data
+					// 过滤推荐商品列表中的 null 值，并限制最多10个商品
+					const filteredList = (response.data || []).filter(item => item != null && item.pic != null)
+					this.recommendProductList = filteredList.slice(0, 10)
 					uni.stopPullDownRefresh()
 				})
 			})
@@ -345,6 +374,10 @@ export default {
 		},
 		//商品详情页
 		navToDetailPage (item) {
+			if (!item || !item.id) {
+				console.error('商品数据无效', item)
+				return
+			}
 			let id = item.id
 			uni.navigateTo({
 				url: `/pages/product/product?id=${id}`
@@ -357,6 +390,10 @@ export default {
 		},
 		//品牌详情页
 		navToBrandDetailPage (item) {
+			if (!item || !item.id) {
+				console.error('品牌数据无效', item)
+				return
+			}
 			let id = item.id
 			uni.navigateTo({
 				url: `/pages/brand/brandDetail?id=${id}`

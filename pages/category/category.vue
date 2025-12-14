@@ -38,20 +38,23 @@
 				</view>
 				<view class="goods-list" v-if="productList.length > 0">
 					<view v-for="(item, index) in productList" :key="index" class="goods-item" 
-						@click="navToDetailPage(item)">
+						@click="navToDetailPage(item)" v-if="item">
 						<view class="image-wrapper">
 							<image 
-								:src="getImageUrl(item.pic)" 
+								v-if="item.pic"
+								:src="item.pic" 
 								mode="aspectFill"
 								@error="handleImageError($event, item)"
 								@load="handleImageLoad($event, item)"
-								:class="{ 'image-error': item.imageError }"
 							></image>
+							<view v-else class="no-image-placeholder">
+								<text>暂无图片</text>
+							</view>
 						</view>
 						<text class="title clamp">{{ item.name }}</text>
 						<text class="subtitle clamp">{{ item.subTitle || '' }}</text>
 						<view class="price-box">
-							<text class="price">￥{{ item.price }}</text>
+							<text class="price">{{ item.price }}</text>
 							<text class="sale-count">已售 {{ item.sale || 0 }}</text>
 						</view>
 					</view>
@@ -192,6 +195,21 @@ export default {
 				this.totalCount = response.data.total || 0
 				
 				logger.debug('商品列表加载成功，数量:', list.length)
+				// 调试：检查商品数据中的pic字段
+				if (list.length > 0) {
+					console.log('=== 商品图片调试信息 ===')
+					list.forEach((item, idx) => {
+						console.log(`商品 ${idx + 1}:`, {
+							id: item.id,
+							name: item.name,
+							pic: item.pic,
+							picType: typeof item.pic,
+							hasPic: !!item.pic,
+							picLength: item.pic ? item.pic.length : 0
+						})
+					})
+					console.log('=== 调试信息结束 ===')
+				}
 
 				if (list.length === 0) {
 					this.loadingType = 'nomore'
@@ -250,19 +268,26 @@ export default {
 		// 处理图片加载错误
 		handleImageError (e, item) {
 			console.error('图片加载失败:', {
-				item: item,
+				itemId: item.id,
+				itemName: item.name,
 				originalPic: item.pic,
-				error: e
+				error: e,
+				imageElement: e.target
 			})
 			// 标记图片加载错误
 			this.$set(item, 'imageError', true)
-			// 如果图片URL不是默认图片，尝试使用默认图片
-			if (item.pic && !item.pic.includes('errorImage')) {
-				item.pic = '/static/errorImage.jpg'
+			// 尝试使用默认图片
+			if (item.pic && !item.pic.includes('errorImage') && !item.pic.includes('default-product')) {
+				this.$set(item, 'pic', '/static/images/default-product.png')
 			}
 		},
 		// 处理图片加载成功
 		handleImageLoad (e, item) {
+			console.log('图片加载成功:', {
+				itemId: item.id,
+				itemName: item.name,
+				pic: item.pic
+			})
 			// 清除错误标记
 			if (item.imageError) {
 				this.$set(item, 'imageError', false)
@@ -496,15 +521,28 @@ page,
 	background-color: #fafafa;
 	margin-bottom: 12upx;
 	position: relative;
+	display: block;
 
 	image {
+		width: 100% !important;
+		height: 100% !important;
+		display: block !important;
+		visibility: visible !important;
+		opacity: 1 !important;
+	}
+	
+	.no-image-placeholder {
 		width: 100%;
 		height: 100%;
-		display: block;
-	}
-
-	&.image-error {
-		background-color: #fff1ec;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: #f5f5f5;
+		color: #999;
+		font-size: 24upx;
+		position: absolute;
+		top: 0;
+		left: 0;
 	}
 }
 

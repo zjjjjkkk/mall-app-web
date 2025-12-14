@@ -11,7 +11,15 @@
 					</view>
 				</view>
 				<view class="info-box">
-					<text class="username">{{userInfo.nickname || '游客'}}</text>
+					<view class="username-row">
+						<text class="username">{{userInfo.nickname || '游客'}}</text>
+						<text v-if="hasLogin && userLevel" class="level-badge">Lv.{{ userLevel }}</text>
+						<text v-if="hasLogin && membership && membership.levelType" 
+							class="membership-badge" 
+							:class="getMembershipClass(membership.levelType)">
+							{{ getMembershipName(membership.levelType) }}
+						</text>
+					</view>
 					<text class="user-desc" v-if="hasLogin">ID: {{userInfo.id || '--'}}</text>
 					<text class="user-desc" v-else>点击登录，享受更多服务</text>
 				</view>
@@ -40,17 +48,17 @@
 						<text class="stats-label">优惠券</text>
 					</view>
 					<view class="stats-divider"></view>
-					<view class="stats-item">
+					<view class="stats-item" @click="navTo('/pages/points/points')">
 						<view class="stats-icon-wrapper points">
-							<text class="stats-icon">⭐</text>
+							<text class="stats-icon yticon icon-jifen"></text>
 						</view>
 						<text class="stats-num">{{userInfo.integration || 0}}</text>
 						<text class="stats-label">积分</text>
 					</view>
 					<view class="stats-divider"></view>
-					<view class="stats-item">
+					<view class="stats-item" @click="navTo('/pages/points/points')">
 						<view class="stats-icon-wrapper growth">
-							<text class="stats-icon">📈</text>
+							<text class="stats-icon yticon icon-chengzhang"></text>
 						</view>
 						<text class="stats-num">{{userInfo.growth || 0}}</text>
 						<text class="stats-label">成长值</text>
@@ -128,6 +136,7 @@
 				<list-cell icon="icon-dizhi" iconColor="#5fcda2" title="地址管理" @eventClick="navTo('/pages/address/address')"></list-cell>
 				<list-cell icon="icon-lishijilu" iconColor="#e07472" title="我的足迹" @eventClick="navTo('/pages/user/readHistory')"></list-cell>
 				<list-cell icon="icon-shoucang_xuanzhongzhuangtai" iconColor="#54b4ef" title="我的收藏" @eventClick="navTo('/pages/user/productCollection')"></list-cell>
+				<list-cell icon="icon-jifen" iconColor="#ff9800" title="积分与成长值" @eventClick="navTo('/pages/points/points')"></list-cell>
 				<list-cell icon="icon-pingjia" iconColor="#ee883b" title="我的评价" @eventClick="navTo('/pages/user/commentList')"></list-cell>
 				<list-cell icon="icon-baoxiu" iconColor="#5fcda2" title="我的报修" @eventClick="navTo('/pages/repair/list')"></list-cell>
 				<!-- 新增：我的退款入口 -->
@@ -156,6 +165,7 @@
 		getContinuousSignInDays
 	} from '@/api/signIn.js';
 	import { getUnreadCount } from '@/api/notification.js';
+		import { fetchActiveMembership, purchaseMembership, fetchMemberLevel } from '@/api/member.js';
     import {  
         mapState 
     } from 'vuex';  
@@ -173,7 +183,29 @@
 				isSignedToday: false,
 				isSigning: false,
 				continuousDays: 0,
-				unreadCount: 0
+				unreadCount: 0,
+				membership: null,
+				userLevel: null,
+				userGrowth: 0,
+				nextLevelGrowth: 0
+			}
+		},
+		computed: {
+			...mapState(['hasLogin','userInfo']),
+			// 计算用户等级
+			calculatedLevel() {
+				if (!this.userInfo || !this.userInfo.growth) {
+					return 1;
+				}
+				const growth = this.userInfo.growth || 0;
+				// 等级计算规则：1级到2级需要3000，2到3要5000，以此类推
+				const thresholds = [0, 3000, 8000, 15000, 24000, 35000, 48000, 63000, 80000, 99000, 120000, 143000, 168000, 195000, 224000];
+				for (let level = 15; level >= 1; level--) {
+					if (growth >= thresholds[level]) {
+						return level;
+					}
+				}
+				return 1;
 			}
 		},
 		onLoad(){
@@ -189,11 +221,17 @@
 				this.checkSignInStatus();
 				// 加载未读消息数量
 				this.loadUnreadCount();
+				// 会员信息
+				this.loadMembership();
+				// 加载用户等级信息
+				this.loadUserLevel();
 			}else{
 				this.couponCount=null;
 				this.isSignedToday = false;
 				this.continuousDays = 0;
 				this.unreadCount = 0;
+				this.membership = null;
+				this.pointHistory = [];
 			}
 		},
 		// #ifndef MP
@@ -216,9 +254,6 @@
 			}
 		},
 		// #endif
-        computed: {
-			...mapState(['hasLogin','userInfo'])
-		},
         methods: {
 			/**
 			 * 统一跳转接口,拦截未登录路由
@@ -232,6 +267,91 @@
 					url
 				})  
 			}, 
+			async loadMembership() {
+				try {
+					const res = await fetchActiveMembership();
+					if (res && res.code === 200) {
+						this.membership = res.data;
+					}
+				} catch (e) {
+					console.error('加载会员信息失败', e);
+				}
+			},
+			async loadUserLevel() {
+				try {
+					const res = await fetchMemberLevel();
+					if (res && res.code === 200 && res.data) {
+						this.userLevel = res.data.currentLevel || this.calculatedLevel;
+						this.userGrowth = res.data.growth || (this.userInfo.growth || 0);
+						this.nextLevelGrowth = res.data.growthRequired || 0;
+					} else {
+						// 如果接口失败，使用计算值
+						this.userLevel = this.calculatedLevel;
+						this.userGrowth = this.userInfo.growth || 0;
+					}
+				} catch (e) {
+					console.error('加载用户等级失败', e);
+					// 如果接口失败，使用计算值
+					this.userLevel = this.calculatedLevel;
+					this.userGrowth = this.userInfo.growth || 0;
+				}
+			},
+			getMembershipName(levelType) {
+				const map = {
+					'MONTH': '月度会员',
+					'QUARTER': '季度会员',
+					'YEAR': '年度会员'
+				}
+				return map[levelType] || ''
+			},
+			getMembershipClass(levelType) {
+				return `membership-${levelType.toLowerCase()}`
+			},
+			async handlePurchaseMembership() {
+				if (!this.hasLogin) {
+					uni.showToast({ title: '请先登录', icon: 'none' });
+					this.navTo('/pages/public/login');
+					return;
+				}
+				const options = [
+					{ name: '月卡 1.10x', value: 'MONTH', price: 38 },
+					{ name: '季卡 1.70x', value: 'QUARTER', price: 98 },
+					{ name: '年卡 2.00x', value: 'YEAR', price: 168 }
+				];
+				const names = options.map(o => `${o.name} · ¥${o.price}`);
+				uni.showActionSheet({
+					itemList: names,
+					success: async (res) => {
+						const idx = res.tapIndex;
+						const level = options[idx];
+						if (!level) return;
+						// 简易支付确认弹窗；实际支付集成时可替换为支付收银台
+						uni.showModal({
+							title: '确认支付',
+							content: `确定购买 ${level.name}（¥${level.price}）吗？`,
+							confirmText: '立即支付',
+							cancelText: '再想想',
+							success: async (mRes) => {
+								if (!mRes.confirm) return;
+								try {
+									const resp = await purchaseMembership(level.value);
+									if (resp && resp.code === 200) {
+										uni.showToast({ title: '开通成功', icon: 'success' });
+										this.membership = resp.data;
+										// 更新积分/会员信息
+										this.loadMembership();
+									} else {
+										uni.showToast({ title: resp.message || '开通失败', icon: 'none' });
+									}
+								} catch (err) {
+									console.error('购买会员失败', err);
+									uni.showToast({ title: '开通失败', icon: 'none' });
+								}
+							}
+						});
+					}
+				});
+			},
 	
 			/**
 			 *  会员卡下拉和回弹
@@ -338,17 +458,40 @@
 					if (response.code === 200) {
 						this.isSignedToday = true;
 						this.continuousDays = (this.continuousDays || 0) + 1;
-						// 更新用户积分
-						if (this.userInfo && response.data.totalIntegration) {
-							this.userInfo.integration = response.data.totalIntegration;
-						}
+						
 						uni.showToast({
 							title: response.data.message || '签到成功',
 							icon: 'success',
 							duration: 2000
 						});
-						// 刷新用户信息
-						this.$store.dispatch('getUserInfo');
+						
+						// 先本地更新积分，避免等待网络刷新
+						const totalIntegration = response.data && response.data.totalIntegration;
+						const addedIntegration = response.data && response.data.integration;
+						if (totalIntegration !== undefined) {
+							this.$store.commit('updateUserInfo', {
+								integration: totalIntegration
+							});
+						} else if (addedIntegration !== undefined) {
+							this.$store.commit('updateUserInfo', {
+								integration: (this.userInfo.integration || 0) + addedIntegration
+							});
+						}
+						
+						// 异步刷新用户信息（包括积分）
+						try {
+							await this.$store.dispatch('getUserInfo');
+							// 重新检查签到状态和连续天数
+							await this.checkSignInStatus();
+						} catch (error) {
+							console.error('刷新用户信息失败:', error);
+							// 如果后端返回了积分，手动更新
+							if (response.data && response.data.totalIntegration !== undefined) {
+								this.$store.commit('updateUserInfo', {
+									integration: response.data.totalIntegration
+								});
+							}
+						}
 					} else {
 						uni.showToast({
 							title: response.message || '签到失败',
@@ -364,6 +507,10 @@
 				} finally {
 					this.isSigning = false;
 				}
+			},
+			fmtDate(val) {
+				if (!val) return '--';
+				return String(val).substring(0, 10);
 			}
         }  
     }  
@@ -439,7 +586,37 @@
 			flex-direction: column;
 		}
 		
-		.username{
+		.username-row {
+		display: flex;
+		align-items: center;
+		gap: 12upx;
+	}
+	.level-badge {
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: #fff;
+		font-size: 20upx;
+		padding: 4upx 12upx;
+		border-radius: 8upx;
+		font-weight: 600;
+	}
+	.membership-badge {
+		display: inline-block;
+		padding: 4upx 12upx;
+		border-radius: 8upx;
+		font-size: 20upx;
+		color: #ffffff;
+		font-weight: 600;
+	}
+	.membership-badge.membership-month {
+		background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+	}
+	.membership-badge.membership-quarter {
+		background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+	}
+	.membership-badge.membership-year {
+		background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+	}
+	.username{
 			font-size: 36upx;
 			font-weight: 600;
 			color: #ffffff;
@@ -583,10 +760,18 @@
 		&.growth {
 			background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
 		}
+		
+		&.level {
+			background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+		}
 	}
 	
 	.stats-icon {
 		font-size: 40upx;
+		&.yticon {
+			font-size: 44upx;
+			color: #ffffff;
+		}
 	}
 	
 	.stats-num {
@@ -837,5 +1022,101 @@
 	
 	.sign-in-btn.disabled {
 		opacity: 0.6;
+	}
+
+	/* 会员与积分流水 */
+	.membership-card {
+		background: #fff;
+		border-radius: 20upx;
+		margin-top: 20upx;
+		padding: 24upx;
+		box-shadow: 0 2upx 12upx rgba(0, 0, 0, 0.06);
+	}
+	.membership-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 16upx;
+	}
+	.membership-title {
+		font-size: 32upx;
+		font-weight: 600;
+		color: $font-color-dark;
+	}
+	.membership-sub {
+		display: block;
+		font-size: 24upx;
+		color: $font-color-light;
+		margin-top: 6upx;
+	}
+	.membership-body {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 8upx;
+	}
+	.membership-item {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+	.membership-item .label {
+		font-size: 24upx;
+		color: $font-color-light;
+	}
+	.membership-item .value {
+		font-size: 28upx;
+		color: $font-color-dark;
+		margin-top: 6upx;
+	}
+	.purchase-btn {
+		line-height: 1;
+		padding: 10upx 20upx;
+		border-radius: 12upx;
+	}
+	.points-history {
+		margin-top: 20upx;
+	}
+	.ph-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		margin-bottom: 10upx;
+	}
+	.ph-list {
+		background: #f8f9fb;
+		border-radius: 12upx;
+		padding: 12upx;
+	}
+	.ph-item {
+		display: flex;
+		justify-content: space-between;
+		padding: 12upx 6upx;
+		border-bottom: 1upx solid #eceff4;
+	}
+	.ph-item:last-child {
+		border-bottom: none;
+	}
+	.ph-left {
+		display: flex;
+		flex-direction: column;
+	}
+	.ph-type {
+		font-size: 26upx;
+		color: $font-color-dark;
+	}
+	.ph-note {
+		font-size: 22upx;
+		color: $font-color-light;
+		margin-top: 4upx;
+	}
+	.ph-right {
+		font-size: 28upx;
+		font-weight: 600;
+	}
+	.ph-right.inc {
+		color: #16c79a;
+	}
+	.ph-right.dec {
+		color: #f94c66;
 	}
 </style>

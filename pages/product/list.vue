@@ -30,7 +30,10 @@
 				<text class="title clamp">{{item.name}}</text>
 				<text class="title2">{{item.subTitle}}</text>
 				<view class="price-box">
-					<text class="price">{{item.price}}</text>
+					<view class="price-wrapper">
+						<text class="price">{{item.standardPrice || item.price}}</text>
+						<text v-if="item.topPrice && item.topPrice > (item.standardPrice || item.price)" class="price-range">起</text>
+					</view>
 					<text>已售 {{item.sale}}</text>
 				</view>
 			</view>
@@ -101,7 +104,7 @@
 			// #endif
 			// 只有当 sid 存在时才设置 productCategoryId
 			if (options.sid) {
-				this.searchParam.productCategoryId = options.sid;
+			this.searchParam.productCategoryId = options.sid;
 			}
 			// 如果有 keyword 参数，设置搜索关键词
 			if (options.keyword) {
@@ -487,24 +490,35 @@
 			display: block;
 		}
 
-		.price-box {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding-right: 10upx;
-			font-size: 24upx;
-			color: $font-color-light;
-		}
+	.price-box {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding-right: 10upx;
+		font-size: 24upx;
+		color: $font-color-light;
+	}
 
-		.price {
-			font-size: $font-lg;
-			color: $uni-color-primary;
-			line-height: 1;
+	.price-wrapper {
+		display: flex;
+		align-items: baseline;
+	}
 
-			&:before {
-				content: '￥';
-				font-size: 26upx;
-			}
+	.price {
+		font-size: $font-lg;
+		color: $uni-color-primary;
+		line-height: 1;
+
+		&:before {
+			content: '￥';
+			font-size: 26upx;
 		}
+	}
+
+	.price-range {
+		font-size: 22upx;
+		color: $font-color-light;
+		margin-left: 4upx;
+	}
 	}
 </style>

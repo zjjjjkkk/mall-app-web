@@ -77,6 +77,7 @@ import empty from "@/components/empty";
 import uniLoadMore from '@/components/uni-load-more/uni-load-more.vue';
 import { formatDate } from '@/utils/date';
 import { getMyCommentList, getCommentReplayList } from '@/api/comment.js';
+import { fetchProductDetail } from '@/api/product.js';
 import logger from '@/utils/logger.js';
 import { getPicList } from '@/utils/imageUtil.js';
 import { showError } from '@/utils/errorHandler.js';
@@ -161,6 +162,32 @@ export default {
 				}
 			}
 		},
+		// 批量加载商品图片信息
+		async loadProductPics(comments) {
+			if (!comments || comments.length === 0) return;
+			
+			// 收集所有需要加载的商品ID
+			const productIds = comments
+				.map(c => c.productId)
+				.filter(id => id && !c.productPic); // 只加载没有图片的
+			
+			if (productIds.length === 0) return;
+			
+			// 批量加载商品信息（这里可以优化为批量接口，暂时逐个加载）
+			for (let comment of comments) {
+				if (comment.productId && !comment.productPic) {
+					try {
+						const productRes = await fetchProductDetail(comment.productId);
+						if (productRes && productRes.code === 200 && productRes.data && productRes.data.pic) {
+							this.$set(comment, 'productPic', productRes.data.pic);
+						}
+					} catch (error) {
+						logger.error('加载商品图片失败:', error);
+						// 静默失败，使用默认图片
+					}
+				}
+			}
+		},
 		// 加载评价回复
 		async loadCommentReplay(comment) {
 			try {
@@ -216,12 +243,22 @@ export default {
 		},
 		// 获取商品图片
 		getProductPic(comment) {
-			// 优先使用评价中的商品图片，如果没有则使用默认图片
+			// 优先使用评价中的商品图片（如果后端返回了）
 			if (comment.productPic) {
 				return this.formatImageUrl(comment.productPic);
 			}
 			// 如果没有商品图片，返回默认图片
 			return '/static/default-product.png';
+		},
+		// 格式化图片URL
+		formatImageUrl(url) {
+			if (!url) return '/static/default-product.png';
+			// 如果已经是完整URL，直接返回
+			if (url.startsWith('http://') || url.startsWith('https://')) {
+				return url;
+			}
+			// 如果是相对路径，可能需要添加基础URL
+			return url;
 		},
 		// 图片加载错误处理
 		handleImageError(e) {

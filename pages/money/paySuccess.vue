@@ -25,6 +25,10 @@
 		onLoad(options) {
 			if(!USE_ALIPAY){
 				this.payText = '支付成功';
+				// 刷新用户信息（包括积分）
+				this.$store.dispatch('getUserInfo').catch(err => {
+					console.error('刷新用户信息失败:', err);
+				});
 				return;
 			}
 			let outTradeNo = options.out_trade_no;
@@ -33,6 +37,10 @@
 				this.tradeStatus = response.data;
 				if(this.tradeStatus!=null&&'TRADE_SUCCESS'==this.tradeStatus){
 					this.payText = '支付成功';
+					// 支付成功后刷新用户信息（包括积分）
+					this.$store.dispatch('getUserInfo').catch(err => {
+						console.error('刷新用户信息失败:', err);
+					});
 				}else{
 					this.payText = '支付失败';
 				}

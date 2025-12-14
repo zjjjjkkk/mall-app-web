@@ -17,13 +17,9 @@
 			<text class="cell-tit">清除缓存</text>
 			<text class="cell-more yticon icon-you"></text>
 		</view>
-		<view class="list-cell b-b" @click="navToOuter('https://github.com/macrozheng/mall')" hover-class="cell-hover" :hover-stay-time="50">
-			<text class="cell-tit">关于mall-app-web</text>
-			<text class="cell-more yticon icon-you"></text>
-		</view>
 		<view class="list-cell">
 			<text class="cell-tit">检查更新</text>
-			<text class="cell-tip">当前版本 1.0.0</text>
+			<text class="cell-tip">当前版本 2.0.0</text>
 			<text class="cell-more yticon icon-you"></text>
 		</view>
 		<view class="list-cell log-out-btn" @click="toLogout">
@@ -33,51 +29,51 @@
 </template>
 
 <script>
-	import {  
-	    mapMutations  
-	} from 'vuex';
-	export default {
-		data() {
-			return {
-				
-			};
-		},
-		methods:{
-			...mapMutations(['logout']),
+import { mapMutations } from 'vuex';
 
-			navTo(url){
-				if(url.indexOf("pages")!=-1){
-					uni.navigateTo({
-						url:url
-					});
-				}
-				this.$api.msg(`跳转到${url}`);
-			},
-			navToOuter(url){
-				window.location.href = url;
-			},
-			//退出登录
-			toLogout(){
-				uni.showModal({
-				    content: '确定要退出登录么',
-				    success: (e)=>{
-				    	if(e.confirm){
-				    		this.logout();
-				    		setTimeout(()=>{
-				    			uni.navigateBack();
-				    		}, 200)
-				    	}
-				    }
+export default {
+	data() {
+		return {
+		};
+	},
+	methods: {
+		...mapMutations(['logout']),
+
+		navTo(url) {
+			if (url.indexOf("pages") != -1) {
+				uni.navigateTo({
+					url: url
 				});
-			},
-			//switch
-			switchChange(e){
-				let statusTip = e.detail.value ? '打开': '关闭';
-				this.$api.msg(`${statusTip}消息推送`);
-			},
-
+			}
+			this.$api.msg(`跳转到${url}`);
+		},
+		navToOuter(url) {
+			// 仅 H5 生效
+			if (typeof window !== 'undefined') {
+				window.location.href = url;
+			}
+		},
+		// 退出登录
+		toLogout() {
+			uni.showModal({
+				content: '确定要退出登录么',
+				success: (e) => {
+					if (e.confirm) {
+						this.logout();
+						setTimeout(() => {
+							uni.navigateBack();
+						}, 200)
+					}
+				}
+			});
+		},
+		// switch
+		switchChange(e) {
+			let statusTip = e.detail.value ? '打开' : '关闭';
+			this.$api.msg(`${statusTip}消息推送`);
 		}
 	}
+}
 </script>
 
 <style lang='scss'>
@@ -95,7 +91,7 @@
 		&.log-out-btn{
 			margin-top: 40upx;
 			.cell-tit{
-				color: $uni-color-primary;
+			color: $uni-color-primary;
 				text-align: center;
 				margin-right: 0;
 			}
@@ -118,12 +114,12 @@
 		.cell-tit{
 			flex: 1;
 			font-size: $font-base + 2upx;
-			color: $font-color-dark;
+		color: $font-color-dark;
 			margin-right:10upx;
 		}
 		.cell-tip{
 			font-size: $font-base;
-			color: $font-color-light;
+		color: $font-color-light;
 		}
 		switch{
 			transform: translateX(16upx) scale(.84);

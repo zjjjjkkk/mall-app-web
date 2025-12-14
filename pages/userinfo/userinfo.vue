@@ -6,16 +6,20 @@
 				<button class="avatar-btn" size="mini" :loading="uploading" @click="chooseAvatar">更换头像</button>
 			</view>
 			<view class="meta">
-				<text class="name">{{ form.username || '未设置用户名' }}</text>
-				<text class="desc">{{ form.phone || '未绑定电话' }}</text>
+				<text class="name">{{ form.nickname || form.username || '未设置用户名' }}</text>
+				<text class="desc">{{ form.city ? `${form.city} · ${form.phone || '未绑定电话'}` : (form.phone || '未绑定电话') }}</text>
 			</view>
 		</view>
 
 		<view class="card form-card">
 			<view class="section-title">基本信息</view>
 			<view class="form-item">
-				<text class="label">用户名</text>
+				<text class="label">用户名 <text class="required">*</text></text>
 				<input class="input" v-model="form.username" placeholder="请输入用户名" />
+			</view>
+			<view class="form-item">
+				<text class="label">昵称</text>
+				<input class="input" v-model="form.nickname" placeholder="请输入昵称" maxlength="20" />
 			</view>
 			<view class="form-item">
 				<text class="label">性别</text>
@@ -32,8 +36,27 @@
 				</view>
 			</view>
 			<view class="form-item">
+				<text class="label">生日</text>
+				<picker mode="date" :value="form.birthday" @change="onBirthdayChange" :start="startDate" :end="endDate">
+					<view class="picker-input">
+						<text :class="form.birthday ? 'picker-text' : 'picker-placeholder'">
+							{{ form.birthday || '请选择生日' }}
+						</text>
+						<text class="picker-arrow">›</text>
+					</view>
+				</picker>
+			</view>
+			<view class="form-item">
+				<text class="label">所在城市</text>
+				<input class="input" v-model="form.city" placeholder="请输入所在城市" maxlength="50" />
+			</view>
+			<view class="form-item">
+				<text class="label">职业</text>
+				<input class="input" v-model="form.job" placeholder="请输入职业" maxlength="50" />
+			</view>
+			<view class="form-item">
 				<text class="label">联系电话</text>
-				<input class="input" v-model="form.phone" type="number" placeholder="请输入手机号" />
+				<input class="input" v-model="form.phone" type="number" placeholder="请输入手机号" maxlength="11" />
 			</view>
 			<view class="form-item">
 				<text class="label">个人简介</text>
@@ -50,18 +73,24 @@ import { memberInfo, updateProfile, uploadAvatar } from '@/api/member.js'
 import { mapState, mapMutations } from 'vuex'
 
 export default {
-	data() {
+		data() {
 		return {
 			form: {
 				username: '',
+				nickname: '',
 				gender: 0,
+				birthday: '',
+				city: '',
+				job: '',
 				phone: '',
 				personalizedSignature: '',
 				icon: ''
 			},
 			saving: false,
 			uploading: false,
-			defaultAvatar: '/static/missing-face.png'
+			defaultAvatar: '/static/missing-face.png',
+			startDate: '1900-01-01',
+			endDate: this.getTodayDate()
 		}
 	},
 	computed: {
@@ -70,15 +99,40 @@ export default {
 	onShow() {
 		this.loadInfo()
 	},
-	methods: {
+		methods: {
 		...mapMutations(['login']),
+		// 获取今天的日期（YYYY-MM-DD格式）
+		getTodayDate() {
+			const date = new Date()
+			const year = date.getFullYear()
+			const month = String(date.getMonth() + 1).padStart(2, '0')
+			const day = String(date.getDate()).padStart(2, '0')
+			return `${year}-${month}-${day}`
+		},
+		// 格式化日期（Date对象转YYYY-MM-DD）
+		formatDate(date) {
+			if (!date) return ''
+			const d = new Date(date)
+			const year = d.getFullYear()
+			const month = String(d.getMonth() + 1).padStart(2, '0')
+			const day = String(d.getDate()).padStart(2, '0')
+			return `${year}-${month}-${day}`
+		},
+		// 生日选择器变化
+		onBirthdayChange(e) {
+			this.form.birthday = e.detail.value
+		},
 		async loadInfo() {
 			try {
 				const res = await memberInfo()
 				if (res && res.code === 200 && res.data) {
 					const info = res.data
 					this.form.username = info.username || ''
+					this.form.nickname = info.nickname || ''
 					this.form.gender = info.gender != null ? info.gender : 0
+					this.form.birthday = this.formatDate(info.birthday) || ''
+					this.form.city = info.city || ''
+					this.form.job = info.job || ''
 					this.form.phone = info.phone || ''
 					this.form.personalizedSignature = info.personalizedSignature || ''
 					this.form.icon = info.icon || ''
@@ -136,7 +190,13 @@ export default {
 			if (!this.validate()) return
 			this.saving = true
 			try {
-				const res = await updateProfile(this.form)
+				// 准备提交的数据
+				const submitData = { ...this.form }
+				// 如果生日是字符串格式，转换为Date对象（后端可能需要）
+				// 注意：如果后端接受字符串格式，可以保持原样
+				// 这里先保持字符串格式，如果后端需要Date对象再转换
+				
+				const res = await updateProfile(submitData)
 				if (res && res.code === 200) {
 					uni.showToast({ title: '保存成功', icon: 'success' })
 					await this.loadInfo()
@@ -206,38 +266,81 @@ export default {
 		}
 	}
 }
-.form-card {
+	.form-card {
 	.section-title {
 		font-size: 30rpx;
 		font-weight: 600;
 		color: #333;
-		margin-bottom: 12rpx;
+		margin-bottom: 24rpx;
+		padding-bottom: 16rpx;
+		border-bottom: 1rpx solid #f0f0f0;
 	}
 	.form-item {
-		margin-bottom: 20rpx;
+		margin-bottom: 32rpx;
 		.label {
 			display: block;
 			font-size: 28rpx;
-			color: #555;
-			margin-bottom: 10rpx;
+			color: #333;
+			margin-bottom: 12rpx;
+			font-weight: 500;
+			.required {
+				color: #fa436a;
+				margin-left: 4rpx;
+			}
 		}
 		.input {
 			width: 100%;
 			height: 84rpx;
 			padding: 0 20rpx;
-			border: 1rpx solid #e5e6eb;
+			border: 2rpx solid #e5e6eb;
 			border-radius: 12rpx;
-			background: #f7f8fa;
+			background: #fff;
 			box-sizing: border-box;
+			font-size: 28rpx;
+			color: #333;
+			transition: border-color 0.3s;
+		}
+		.input:focus {
+			border-color: #5a8dee;
 		}
 		.textarea {
 			width: 100%;
 			min-height: 180rpx;
 			padding: 16rpx 20rpx;
-			border: 1rpx solid #e5e6eb;
+			border: 2rpx solid #e5e6eb;
 			border-radius: 12rpx;
-			background: #f7f8fa;
+			background: #fff;
 			box-sizing: border-box;
+			font-size: 28rpx;
+			color: #333;
+			transition: border-color 0.3s;
+		}
+		.textarea:focus {
+			border-color: #5a8dee;
+		}
+		.picker-input {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			width: 100%;
+			height: 84rpx;
+			padding: 0 20rpx;
+			border: 2rpx solid #e5e6eb;
+			border-radius: 12rpx;
+			background: #fff;
+			box-sizing: border-box;
+			.picker-text {
+				font-size: 28rpx;
+				color: #333;
+			}
+			.picker-placeholder {
+				font-size: 28rpx;
+				color: #999;
+			}
+			.picker-arrow {
+				font-size: 32rpx;
+				color: #999;
+			}
 		}
 	}
 }

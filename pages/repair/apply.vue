@@ -99,6 +99,24 @@
 			<view class="address-info">
 				<text class="address-text">{{ shopAddress || '商家地址加载中...' }}</text>
 			</view>
+			<view class="form-item">
+				<text class="label">快递公司</text>
+				<input
+					class="input"
+					v-model="formData.deliveryCompany"
+					placeholder="请填写快递公司"
+					maxlength="30"
+				/>
+			</view>
+			<view class="form-item">
+				<text class="label">快递单号</text>
+				<input
+					class="input"
+					v-model="formData.deliverySn"
+					placeholder="请选择邮寄方式时必填"
+					maxlength="50"
+				/>
+			</view>
 		</view>
 		
 		<!-- 报修表单 -->
@@ -184,6 +202,8 @@ export default {
 				repairContent: '',
 				contactName: '',
 				contactPhone: '',
+					deliveryCompany: '',
+					deliverySn: '',
 				orderId: null,
 				orderItemId: null,
 				productId: null,
@@ -236,7 +256,8 @@ export default {
 				   this.formData.repairContent.trim() && 
 				   this.formData.contactName.trim() && 
 				   this.formData.contactPhone.trim() &&
-				   /^1[3-9]\d{9}$/.test(this.formData.contactPhone)
+				   /^1[3-9]\d{9}$/.test(this.formData.contactPhone) &&
+				   (this.formData.repairType !== 0 || this.formData.deliverySn.trim())
 		}
 	},
 	onLoad(options) {

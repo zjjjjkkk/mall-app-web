@@ -14,10 +14,27 @@
 			<text class="title">{{product.name}}</text><br>
 			<text class="title2">{{product.subTitle}}</text>
 			<view class="price-box">
-				<text class="price-tip">¥</text>
-				<text class="price">{{product.price}}</text>
-				<text class="m-price">¥{{product.originalPrice}}</text>
-				<!-- <text class="coupon-tip">7折</text> -->
+				<!-- 如果有标配和高配价格，显示两个价格 -->
+				<view v-if="product.standardPrice && product.topPrice" class="version-price-box">
+					<view class="version-price-item">
+						<text class="version-label">标配版：</text>
+						<text class="price-tip">¥</text>
+						<text class="price">{{product.standardPrice}}</text>
+						<text v-if="product.standardVersion" class="version-info">({{product.standardVersion}})</text>
+					</view>
+					<view class="version-price-item">
+						<text class="version-label">高配版：</text>
+						<text class="price-tip">¥</text>
+						<text class="price">{{product.topPrice}}</text>
+						<text v-if="product.topVersion" class="version-info">({{product.topVersion}})</text>
+					</view>
+				</view>
+				<!-- 如果没有版本价格，显示原来的价格 -->
+				<view v-else>
+					<text class="price-tip">¥</text>
+					<text class="price">{{product.price}}</text>
+					<text v-if="product.originalPrice && product.originalPrice > product.price" class="m-price">¥{{product.originalPrice}}</text>
+				</view>
 			</view>
 			<view class="bot-row">
 				<text>销量: {{product.sale}}</text>
@@ -29,11 +46,12 @@
 
 		<view class="c-list">
 			<view class="c-row b-b" @click="toggleSpec">
-				<text class="tit">购买类型</text>
+				<text class="tit">选择套餐</text>
 				<view class="con">
-					<text class="selected-text" v-for="(sItem, sIndex) in specSelected" :key="sIndex">
+					<text v-if="specSelected.length > 0" class="selected-text" v-for="(sItem, sIndex) in specSelected" :key="sIndex">
 						{{sItem.name}}
 					</text>
+					<text v-else class="placeholder-text" style="color: #999;">请选择套餐</text>
 				</view>
 				<text class="yticon icon-you"></text>
 			</view>
@@ -41,6 +59,15 @@
 				<text class="tit">商品参数</text>
 				<view class="con">
 					<text class="con t-r">查看</text>
+				</view>
+				<text class="yticon icon-you"></text>
+			</view>
+			<view class="c-row b-b" @click="addToCompare">
+				<text class="tit">商品对比</text>
+				<view class="con">
+					<text class="con t-r" :class="{'red': isInCompare}">
+						{{ isInCompare ? '已加入对比' : '加入对比' }}
+					</text>
 				</view>
 				<text class="yticon icon-you"></text>
 			</view>
@@ -126,18 +153,35 @@
 			</template>
 		</view>
 
+		<!-- 相关推荐 -->
+		<view v-if="recommendations && recommendations.length" class="recommend-section">
+			<view class="d-header">
+				<text>相关推荐</text>
+			</view>
+			<view class="recommend-list">
+				<view v-for="item in recommendations" :key="item.id" class="recommend-item" @click="goRecommend(item)">
+					<image class="recommend-cover" :src="item.cover || defaultCover" mode="aspectFill"></image>
+					<view class="recommend-info">
+						<text class="recommend-name">{{ item.title }}</text>
+						<text class="recommend-price" v-if="item.price">¥{{ item.price }}</text>
+						<text class="recommend-reason">{{ item.reason || '热门推荐' }}</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
 		<!-- 品牌信息 -->
-		<view class="brand-info">
+		<view class="brand-info" v-if="brand && brand.id">
 			<view class="d-header">
 				<text>品牌信息</text>
 			</view>
 			<view class="brand-box" @click="navToBrandDetail()">
 				<view class="image-wrapper">
-					<image :src="brand.logo" class="loaded" mode="aspectFit"></image>
+					<image :src="brand.logo || ''" class="loaded" mode="aspectFit"></image>
 				</view>
 				<view class="title">
-					<text>{{brand.name}}</text>
-					<text>品牌首字母：{{brand.firstLetter}}</text>
+					<text>{{brand.name || ''}}</text>
+					<text>品牌首字母：{{brand.firstLetter || ''}}</text>
 				</view>
 			</view>
 		</view>
@@ -185,17 +229,20 @@
 							已选：
 							<text class="selected-text" v-for="(sItem, sIndex) in specSelected" :key="sIndex">
 								{{sItem.name}}
+								<text v-if="sItem.price" class="selected-price">(¥{{sItem.price}})</text>
 							</text>
 						</view>
 					</view>
 				</view>
 				<view v-for="(item,index) in specList" :key="index" class="attr-list">
-					<text>{{item.name}}</text>
+					<text class="attr-title">{{item.name}}</text>
 					<view class="item-list">
-						<text v-for="(childItem, childIndex) in specChildList" v-if="childItem.pid === item.id" :key="childIndex" class="tit"
-						 :class="{selected: childItem.selected}" @click="selectSpec(childIndex, childItem.pid)">
-							{{childItem.name}}
-						</text>
+						<view v-for="(childItem, childIndex) in specChildList" v-if="childItem.pid === item.id" :key="childIndex" 
+							class="package-item" :class="{selected: childItem.selected}" 
+							@click="selectSpec(childIndex, childItem.pid)">
+							<text class="package-name">{{childItem.name}}</text>
+							<text v-if="childItem.price" class="package-price">¥{{childItem.price}}</text>
+						</view>
 					</view>
 				</view>
 				<button class="btn" @click="toggleSpec">完成</button>
@@ -248,7 +295,9 @@ import share from '@/components/share';
 import {
 	fetchProductDetail
 } from '@/api/product.js';
+import { recommendProducts } from '@/api/ugc';
 import { getCommentListByProductId, getCommentReplayList } from '@/api/comment.js';
+import { addToCompare, checkInCompare } from '@/api/productCompare';
 import logger from '@/utils/logger.js';
 import { getPicList } from '@/utils/imageUtil.js';
 import { handleApiError, showError } from '@/utils/errorHandler.js';
@@ -321,6 +370,8 @@ import {
 				specList: [],
 				specChildList: [],
 				product: {},
+				recommendations: [],
+				defaultCover: '/static/missing-face.png',
 				brand: {},
 				serviceList: [],
 				skuStockList: [],
@@ -328,6 +379,8 @@ import {
 				promotionTipList: [],
 				couponState: 0,
 				couponList: [],
+				// 对比相关
+				isInCompare: false,
 				// 评价相关
 				commentList: [],
 				commentTotal: 0,
@@ -362,11 +415,26 @@ import {
 			},
 		},
 		methods: {
+			async loadRecommendations(product) {
+				if (!product || !product.id) return;
+				try {
+					const res = await recommendProducts(product.id, { limit: 6 });
+					this.recommendations = res.data || [];
+				} catch (e) {
+					logger.error('加载相关推荐失败:', e);
+				}
+			},
 			async loadData(id) {
 				fetchProductDetail(id).then(response => {
 					this.product = response.data.product;
 					this.skuStockList = response.data.skuStockList;
 					this.brand = response.data.brand;
+					
+					// 调试：打印商品数据，检查是否有版本价格字段
+					console.log('商品数据:', this.product);
+					console.log('标配价格:', this.product.standardPrice, '高配价格:', this.product.topPrice);
+					
+					this.loadRecommendations(this.product);
 					this.initImgList();
 					this.initServiceList();
 					this.initSpecList(response.data);
@@ -375,6 +443,7 @@ import {
 					this.initProductDesc();
 					this.handleReadHistory();
 					this.initProductCollection();
+					this.checkCompareStatus(id);
 					// 延迟加载评价列表，确保商品数据已完全加载
 					this.$nextTick(() => {
 						setTimeout(() => {
@@ -382,6 +451,53 @@ import {
 						}, 500);
 					});
 				});
+			},
+			async checkCompareStatus(productId) {
+				if (!this.hasLogin) return;
+				try {
+					const res = await checkInCompare(productId);
+					if (res && res.code === 200) {
+						this.isInCompare = res.data || false;
+					}
+				} catch (e) {
+					console.error('检查对比状态失败', e);
+				}
+			},
+			async addToCompare() {
+				if (!this.hasLogin) {
+					this.checkForLogin();
+					return;
+				}
+				
+				const productId = this.product.id;
+				if (this.isInCompare) {
+					uni.showToast({ title: '已在对比列表中', icon: 'none' });
+					uni.navigateTo({ url: '/pages/product/compare' });
+					return;
+				}
+				
+				try {
+					const res = await addToCompare(productId);
+					if (res && res.code === 200) {
+						this.isInCompare = true;
+						uni.showToast({ 
+							title: `已加入对比（${res.data}/10）`, 
+							icon: 'success' 
+						});
+					}
+				} catch (e) {
+					console.error('加入对比失败', e);
+					const errorMsg = e?.message || e?.msg || e?.error || e?.response?.data?.message || '加入失败';
+					uni.showToast({ title: errorMsg, icon: 'none' });
+				}
+			},
+			goRecommend(item) {
+				// 目前接口返回 type 为 product，为兼容后续扩展保留分支
+				if (item.type === 'product' || !item.type) {
+					uni.navigateTo({ url: `/pages/product/product?id=${item.id}` });
+				} else if (item.type === 'post') {
+					uni.navigateTo({ url: `/pages/ugc/detail?id=${item.id}` });
+				}
 			},
 			// 加载评价列表
 			async loadCommentList() {
@@ -442,10 +558,11 @@ import {
 						this.commentTotal = 0;
 					}
 				} catch (error) {
-					logger.error('加载评价列表失败:', error);
+					const message = handleApiError(error, '加载评价列表失败，请稍后重试');
+					logger.error('加载评价列表失败:', message, error);
 					this.commentList = [];
 					this.commentTotal = 0;
-					showError(error, '加载评价列表失败，请稍后重试');
+					uni.showToast({ title: message, icon: 'none', duration: 2000 });
 				}
 			},
 			// 加载评价回复
@@ -548,19 +665,20 @@ import {
 			//选择规格
 			selectSpec(index, pid) {
 				let list = this.specChildList;
-				list.forEach(item => {
-					if (item.pid === pid) {
-						this.$set(item, 'selected', false);
-					}
-				})
+				// 找到当前pid对应的所有选项
+				let currentPidItems = list.filter(item => item.pid === pid);
+				// 取消当前pid下所有选项的选中状态
+				currentPidItems.forEach(item => {
+					this.$set(item, 'selected', false);
+				});
 
-				this.$set(list[index], 'selected', true);
+				// 选中当前选项
+				let selectedItem = list.find((item, idx) => idx === index && item.pid === pid);
+				if (selectedItem) {
+					this.$set(selectedItem, 'selected', true);
+				}
+
 				//存储已选择
-				/**
-				 * 修复选择规格存储错误
-				 * 将这几行代码替换即可
-				 * 选择的规格存放在specSelected中
-				 */
 				this.specSelected = [];
 				list.forEach(item => {
 					if (item.selected === true) {
@@ -568,7 +686,6 @@ import {
 					}
 				})
 				this.changeSpecInfo();
-
 			},
 			//领取优惠券
 			addCoupon(coupon) {
@@ -737,8 +854,14 @@ import {
 			stopPrevent() {},
 			//设置头图信息
 			initImgList() {
-				let tempPics = this.product.albumPics.split(',');
-				tempPics.unshift(this.product.pic);
+				if (!this.product) return;
+				let tempPics = [];
+				if (this.product.albumPics && typeof this.product.albumPics === 'string') {
+					tempPics = this.product.albumPics.split(',');
+				}
+				if (this.product.pic) {
+					tempPics.unshift(this.product.pic);
+				}
 				for (let item of tempPics) {
 					if (item != null && item != '') {
 						this.imgList.push({
@@ -749,8 +872,9 @@ import {
 			},
 			//设置服务信息
 			initServiceList() {
+				if (!this.product) return;
 				for (let item of defaultServiceList) {
-					if (this.product.serviceIds.indexOf(item.id) != -1) {
+					if (this.product.serviceIds && this.product.serviceIds.indexOf(item.id) != -1) {
 						this.serviceList.push(item.name);
 					}
 				}
@@ -760,6 +884,8 @@ import {
 				// 安全检查
 				if (!data || !data.productAttributeList || !Array.isArray(data.productAttributeList)) {
 					logger.warn('商品规格数据不存在或格式错误');
+					// 如果没有规格属性，尝试使用标配/顶配版本作为套餐
+					this.initPackageFromVersion();
 					return;
 				}
 				
@@ -781,7 +907,7 @@ import {
 										this.specChildList.push({
 											pid: item.id,
 											pname: item.name,
-											name: inputList[j]
+											name: inputList[j].trim()
 										});
 									}
 								}
@@ -794,28 +920,43 @@ import {
 									this.specChildList.push({
 										pid: item.id,
 										pname: item.name,
-										name: inputList[j]
+										name: inputList[j].trim()
 									});
 								}
 							}
 						}
 					}
 				}
+				
+				// 如果仍然没有规格，尝试使用标配/顶配版本
+				if (this.specList.length === 0) {
+					this.initPackageFromVersion();
+					return;
+				}
+				
 				let availAbleSpecSet = new Set();
 				for (let i = 0; i < this.skuStockList.length; i++) {
-					let spDataArr = JSON.parse(this.skuStockList[i].spData);
-					for (let j = 0; j < spDataArr.length; j++) {
-						availAbleSpecSet.add(spDataArr[j].value);
+					if (this.skuStockList[i].spData) {
+						try {
+							let spDataArr = JSON.parse(this.skuStockList[i].spData);
+							for (let j = 0; j < spDataArr.length; j++) {
+								availAbleSpecSet.add(spDataArr[j].value);
+							}
+						} catch (e) {
+							logger.warn('解析SKU spData失败:', e);
+						}
 					}
 				}
 				// 根据商品sku筛选出可用规格
-				this.specChildList = this.specChildList.filter(item => {
-					return availAbleSpecSet.has(item.name)
-				});
+				if (availAbleSpecSet.size > 0) {
+					this.specChildList = this.specChildList.filter(item => {
+						return availAbleSpecSet.has(item.name)
+					});
+				}
 				// 规格 默认选中第一条
 				this.specList.forEach(item => {
 					for (let cItem of this.specChildList) {
-						if (cItem.pid === item.id) {
+						if (cItem.pid === item.id && !cItem.selected) {
 							this.$set(cItem, 'selected', true);
 							this.specSelected.push(cItem);
 							this.changeSpecInfo();
@@ -824,17 +965,95 @@ import {
 					}
 				})
 			},
+			// 从商品版本信息初始化套餐（如果没有规格属性）
+			initPackageFromVersion() {
+				if (!this.product) {
+					console.warn('商品数据不存在，无法初始化套餐');
+					return;
+				}
+				
+				// 兼容下划线命名（如果后端返回的是下划线格式）
+				const standardPrice = this.product.standardPrice || this.product.standard_price;
+				const topPrice = this.product.topPrice || this.product.top_price;
+				const standardVersion = this.product.standardVersion || this.product.standard_version;
+				const topVersion = this.product.topVersion || this.product.top_version;
+				
+				console.log('初始化套餐 - 商品ID:', this.product.id);
+				console.log('标配版本:', standardVersion, '价格:', standardPrice);
+				console.log('高配版本:', topVersion, '价格:', topPrice);
+				console.log('完整商品对象:', JSON.stringify(this.product, null, 2));
+				
+				// 清空之前的套餐列表
+				this.specList = [];
+				this.specChildList = [];
+				
+				// 创建套餐规格
+				let packageSpecId = 9999; // 临时ID
+				this.specList.push({
+					id: packageSpecId,
+					name: '套餐'
+				});
+				
+				// 添加标配套餐（即使没有版本信息，只要有价格就显示）
+				if (standardPrice != null && standardPrice !== undefined && standardPrice !== '') {
+					this.specChildList.push({
+						pid: packageSpecId,
+						pname: '套餐',
+						name: standardVersion ? `标配版（${standardVersion}）` : '标配版',
+						price: Number(standardPrice),
+						version: standardVersion || '标配版'
+					});
+					console.log('已添加标配套餐:', this.specChildList[this.specChildList.length - 1]);
+				}
+				
+				// 添加高配套餐（即使没有版本信息，只要有价格就显示）
+				if (topPrice != null && topPrice !== undefined && topPrice !== '') {
+					this.specChildList.push({
+						pid: packageSpecId,
+						pname: '套餐',
+						name: topVersion ? `高配版（${topVersion}）` : '高配版',
+						price: Number(topPrice),
+						version: topVersion || '高配版'
+					});
+					console.log('已添加高配套餐:', this.specChildList[this.specChildList.length - 1]);
+				}
+				
+				// 如果既没有标配也没有高配，使用商品基础价格创建一个默认套餐
+				if (this.specChildList.length === 0) {
+					console.warn('没有找到版本价格信息，使用商品基础价格');
+					this.specChildList.push({
+						pid: packageSpecId,
+						pname: '套餐',
+						name: '标准版',
+						price: Number(this.product.price) || 0,
+						version: '标准版'
+					});
+				}
+				
+				console.log('最终套餐列表:', this.specChildList);
+				
+				// 默认选中第一个套餐
+				if (this.specChildList.length > 0) {
+					this.$set(this.specChildList[0], 'selected', true);
+					this.specSelected = [this.specChildList[0]];
+					this.changeSpecInfo();
+				}
+			},
 			//设置商品参数
 			initAttrList(data) {
+				if (!data || !data.productAttributeList || !data.productAttributeValueList) {
+					return;
+				}
 				for (let item of data.productAttributeList) {
 					if (item.type == 1) {
-						let valueList = data.productAttributeValueList;
-						let filterValueList = valueList.filter(value => value.productAttributeId == item.id);
-						let value = filterValueList[0].value;
-						this.attrList.push({
-							key: item.name,
-							value: value
-						});
+						const valueList = data.productAttributeValueList || [];
+						const filterValueList = valueList.filter(value => value.productAttributeId == item.id);
+						if (filterValueList.length > 0 && filterValueList[0] && filterValueList[0].value !== undefined) {
+							this.attrList.push({
+								key: item.name,
+								value: filterValueList[0].value
+							});
+						}
 					}
 				}
 			},
@@ -906,27 +1125,89 @@ import {
 						this.product.price = skuStock.price;
 					}
 					this.product.stock = skuStock.stock;
+				} else {
+					// 如果没有SKU，使用套餐价格
+					let selectedPackage = this.specSelected.find(item => item.price);
+					if (selectedPackage && selectedPackage.price) {
+						this.product.price = selectedPackage.price;
+						console.log('更新商品价格为套餐价格:', selectedPackage.price);
+					}
 				}
 			},
 			//获取当前选中商品的SKU
 			getSkuStock() {
-				for (let i = 0; i < this.skuStockList.length; i++) {
-					let spDataArr = JSON.parse(this.skuStockList[i].spData);
-					let availAbleSpecSet = new Map();
-					for (let j = 0; j < spDataArr.length; j++) {
-						availAbleSpecSet.set(spDataArr[j].key, spDataArr[j].value);
-					}
-					let correctCount = 0;
-					for (let item of this.specSelected) {
-						let value = availAbleSpecSet.get(item.pname);
-						if (value != null && value == item.name) {
-							correctCount++;
+				// 如果没有SKU列表，返回null
+				if (!this.skuStockList || this.skuStockList.length === 0) {
+					return null;
+				}
+				
+				// 判断商品是否有规格系统
+				const hasSpecSystem = this.specList && this.specList.length > 0;
+				const hasSelectedSpec = this.specSelected && this.specSelected.length > 0;
+				
+				// 如果没有规格系统，直接返回第一个SKU（或默认SKU）
+				if (!hasSpecSystem) {
+					// 优先查找默认SKU（spData为空或为"[]"的SKU）
+					for (let i = 0; i < this.skuStockList.length; i++) {
+						let sku = this.skuStockList[i];
+						if (!sku.spData || sku.spData === '[]' || sku.spData === 'null' || sku.spData === 'undefined' || sku.spData.trim() === '') {
+							return sku;
 						}
 					}
-					if (correctCount == this.specSelected.length) {
-						return this.skuStockList[i];
+					// 如果没有默认SKU，直接返回第一个
+					return this.skuStockList[0];
+				}
+				
+				// 如果有规格系统但没有选择规格，返回null（让调用方提示用户选择）
+				if (!hasSelectedSpec) {
+					return null;
+				}
+				
+				// 有规格选择时，匹配对应的SKU
+				for (let i = 0; i < this.skuStockList.length; i++) {
+					let sku = this.skuStockList[i];
+					
+					// 如果SKU的spData为空，跳过（这种情况应该在上面的逻辑中处理）
+					if (!sku.spData || sku.spData === 'null' || sku.spData === 'undefined' || sku.spData.trim() === '') {
+						continue;
+					}
+					
+					try {
+						let spDataArr = JSON.parse(sku.spData);
+						if (!Array.isArray(spDataArr) || spDataArr.length === 0) {
+							continue;
+						}
+						
+						let availAbleSpecSet = new Map();
+						for (let j = 0; j < spDataArr.length; j++) {
+							if (spDataArr[j] && spDataArr[j].key && spDataArr[j].value) {
+								availAbleSpecSet.set(spDataArr[j].key, spDataArr[j].value);
+							}
+						}
+						
+						// 如果规格选择数量与spData中的规格数量不匹配，跳过
+						if (this.specSelected.length !== spDataArr.length) {
+							continue;
+						}
+						
+						let correctCount = 0;
+						for (let item of this.specSelected) {
+							let value = availAbleSpecSet.get(item.pname);
+							if (value != null && value == item.name) {
+								correctCount++;
+							}
+						}
+						
+						if (correctCount == this.specSelected.length) {
+							return sku;
+						}
+					} catch (e) {
+						console.warn('解析SKU spData失败:', sku.spData, e);
+						continue;
 					}
 				}
+				
+				// 如果所有SKU都不匹配，返回null
 				return null;
 			},
 			//将商品加入到购物车
@@ -934,26 +1215,109 @@ import {
 				if (!this.checkForLogin()) {
 					return;
 				}
+				
+				// 检查是否选择了规格或套餐
 				let productSkuStock = this.getSkuStock();
+				let selectedPackage = null;
+				
+				// 如果没有SKU但有套餐选择，使用套餐信息
+				if (!productSkuStock && this.specSelected && this.specSelected.length > 0) {
+					selectedPackage = this.specSelected[0];
+					// 检查库存（使用商品库存）
+					if (this.product.stock <= 0) {
+						uni.showToast({
+							title: '商品库存不足',
+							icon: 'none',
+							duration: 2000
+						});
+						return;
+					}
+				} else if (!productSkuStock) {
+					// 既没有SKU也没有套餐选择
+					uni.showToast({
+						title: '请选择商品规格',
+						icon: 'none',
+						duration: 2000
+					});
+					return;
+				} else {
+					// 有SKU，检查库存
+					if (productSkuStock.stock <= 0) {
+						uni.showToast({
+							title: '商品库存不足',
+							icon: 'none',
+							duration: 2000
+						});
+						return;
+					}
+				}
+				
+				// 构建购物车项
 				let cartItem = {
 					price: this.product.price,
-					productAttr: productSkuStock.spData,
 					productBrand: this.product.brandName,
 					productCategoryId: this.product.productCategoryId,
 					productId: this.product.id,
 					productName: this.product.name,
 					productPic: this.product.pic,
-					productSkuCode: productSkuStock.skuCode,
-					productSkuId: productSkuStock.id,
 					productSn: this.product.productSn,
-					productSubTitle: this.product.subTitle,
+					productSubTitle: this.product.subTitle || '',
 					quantity: 1
 				};
+				
+				// 如果有SKU，使用SKU信息
+				if (productSkuStock) {
+					cartItem.productAttr = productSkuStock.spData || '[]';
+					cartItem.productSkuCode = productSkuStock.skuCode || '';
+					cartItem.productSkuId = productSkuStock.id;
+				} else if (selectedPackage) {
+					// 如果没有SKU但有套餐，构建套餐属性信息
+					// 使用套餐名称作为主要标识，确保不同配置能区分
+					let packageAttr = [{
+						key: '套餐',
+						value: selectedPackage.name
+					}];
+					if (selectedPackage.version) {
+						packageAttr.push({
+							key: '版本',
+							value: selectedPackage.version
+						});
+					}
+					// 添加价格信息，确保不同价格的配置能区分
+					if (selectedPackage.price) {
+						packageAttr.push({
+							key: '价格',
+							value: '¥' + selectedPackage.price
+						});
+					}
+					cartItem.productAttr = JSON.stringify(packageAttr);
+					cartItem.productSkuCode = '';
+					cartItem.productSkuId = null; // 没有SKU ID
+					console.log('添加购物车 - 套餐信息:', selectedPackage);
+					console.log('添加购物车 - 属性信息:', cartItem.productAttr);
+				}
+				
 				addCartItem(cartItem).then(response => {
+					if (response && response.code === 200) {
+						uni.showToast({
+							title: response.message || '已加入购物车',
+							icon: 'success',
+							duration: 1500
+						});
+					} else {
+						uni.showToast({
+							title: response.message || '加入购物车失败',
+							icon: 'none',
+							duration: 2000
+						});
+					}
+				}).catch(error => {
+					console.error('加入购物车失败:', error);
 					uni.showToast({
-						title: response.message,
-						duration: 1500
-					})
+						title: '加入购物车失败',
+						icon: 'none',
+						duration: 2000
+					});
 				});
 			},
 			//检查登录状态并弹出登录框
@@ -1060,18 +1424,43 @@ import {
 			margin-bottom: 20upx;
 		}
 
-		.price-box {
-			display: flex;
-			align-items: baseline;
-			padding: 20upx 0;
-			border-bottom: 1px solid #f0f0f0;
-		}
+	.price-box {
+		display: flex;
+		align-items: baseline;
+		padding: 20upx 0;
+		border-bottom: 1px solid #f0f0f0;
+	}
 
-		.price {
-			font-size: 36upx;
-			color: #ff4444;
-			font-weight: normal;
-		}
+	.version-price-box {
+		display: flex;
+		flex-direction: column;
+		gap: 12upx;
+		width: 100%;
+	}
+
+	.version-price-item {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+	}
+
+	.version-label {
+		font-size: 28upx;
+		color: #666;
+		margin-right: 8upx;
+	}
+
+	.version-info {
+		font-size: 24upx;
+		color: #999;
+		margin-left: 8upx;
+	}
+
+	.price {
+		font-size: 36upx;
+		color: #ff4444;
+		font-weight: normal;
+	}
 
 		.m-price {
 			margin: 0 12upx;
@@ -1193,6 +1582,12 @@ import {
 
 			.selected-text {
 				margin-right: 10upx;
+			}
+
+			.selected-price {
+				font-size: 24upx;
+				color: #ff4444;
+				margin-left: 8upx;
 			}
 		}
 
@@ -1474,6 +1869,13 @@ import {
 			padding-left: 10upx;
 		}
 
+		.attr-title {
+			font-size: 32upx;
+			font-weight: 600;
+			color: $font-color-dark;
+			margin-bottom: 20upx;
+		}
+
 		.item-list {
 			padding: 20upx 0 0;
 			display: flex;
@@ -1497,6 +1899,47 @@ import {
 			.selected {
 				background: #fbebee;
 				color: $uni-color-primary;
+			}
+
+			.package-item {
+				display: flex;
+				flex-direction: column;
+				align-items: flex-start;
+				justify-content: center;
+				background: #f5f5f5;
+				border: 2upx solid #e0e0e0;
+				border-radius: 12upx;
+				margin-right: 20upx;
+				margin-bottom: 20upx;
+				padding: 20upx 30upx;
+				min-width: 200upx;
+				transition: all 0.3s;
+
+				.package-name {
+					font-size: 30upx;
+					color: $font-color-dark;
+					font-weight: 500;
+					margin-bottom: 8upx;
+				}
+
+				.package-price {
+					font-size: 28upx;
+					color: $uni-color-primary;
+					font-weight: 600;
+				}
+
+				&.selected {
+					background: #fff5f7;
+					border-color: $uni-color-primary;
+					
+					.package-name {
+						color: $uni-color-primary;
+					}
+				}
+
+				&:active {
+					opacity: 0.8;
+				}
 			}
 		}
 	}
@@ -1886,5 +2329,48 @@ import {
 				border-bottom: 1px solid #ccc;
 			}
 		}
+	}
+
+	/* 相关推荐 */
+	.recommend-section {
+		margin-top: 16upx;
+		background: #fff;
+		border-radius: 12upx;
+		padding: 24upx;
+	}
+	.recommend-list {
+		display: flex;
+		flex-direction: column;
+		gap: 20upx;
+	}
+	.recommend-item {
+		display: flex;
+		gap: 16upx;
+		align-items: center;
+	}
+	.recommend-cover {
+		width: 180upx;
+		height: 130upx;
+		border-radius: 8upx;
+		background: #f5f5f5;
+	}
+	.recommend-info {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 8upx;
+	}
+	.recommend-name {
+		font-size: 30upx;
+		color: #333;
+		font-weight: 600;
+	}
+	.recommend-price {
+		font-size: 28upx;
+		color: #e64340;
+	}
+	.recommend-reason {
+		font-size: 24upx;
+		color: #999;
 	}
 </style>

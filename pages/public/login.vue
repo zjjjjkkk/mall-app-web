@@ -301,6 +301,12 @@
 						if (userInfoResponse.code === 200) {
 							// 更新Vuex状态
 							this.login(userInfoResponse.data);
+							// 再次从后端刷新用户信息，确保积分等实时数据
+							try {
+								await this.$store.dispatch('getUserInfo');
+							} catch (err) {
+								console.error('登录后刷新用户信息失败:', err);
+							}
 							
 							uni.hideLoading();
 							uni.showToast({ 

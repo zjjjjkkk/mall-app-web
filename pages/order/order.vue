@@ -45,9 +45,10 @@
 										<button 
 											v-if="item.status == 3" 
 											class="comment-btn-small" 
-											@click.stop="goToComment(orderItem, item)"
+											:class="{ 'view-comment-btn-small': orderItem.commentStatus === 2 }"
+											@click.stop="handleCommentAction(orderItem, item)"
 										>
-											评价
+											{{ getCommentButtonText(orderItem) }}
 										</button>
 									</view>
 								</view>
@@ -64,12 +65,12 @@
 							<button class="action-btn recom" @click="payOrder(item.id)">立即付款</button>
 						</view>
 						<view class="action-box b-t" v-if="item.status == 2">
-							<button class="action-btn" @click="applyRefund(item)">申请退款</button>
+							<button class="action-btn" v-if="!item.hasRefund" @click="applyRefund(item)">申请退款</button>
 							<button class="action-btn" @click="showOrderDetail(item.id)">查看物流</button>
 							<button class="action-btn recom" @click="receiveOrder(item.id)">确认收货</button>
 						</view>
 						<view class="action-box b-t" v-if="item.status == 3">
-							<button class="action-btn" @click="applyRefund(item)">申请退款</button>
+							<button class="action-btn" v-if="!item.hasRefund" @click="applyRefund(item)">申请退款</button>
 							<button class="action-btn recom" @click="goToCommentAll(item)">评价商品</button>
 							<button class="action-btn" @click="showOrderDetail(item.id)">再次购买</button>
 						</view>
@@ -144,6 +145,7 @@
 <script>
 import uniLoadMore from '@/components/uni-load-more/uni-load-more.vue'
 import empty from "@/components/empty"
+import { getCommentStatus } from '@/api/comment.js'
 import {
 	formatDate
 } from '@/utils/date'
@@ -295,6 +297,12 @@ export default {
 						this.orderParam.pageNum--
 						this.loadingType = 'noMore'
 					}
+				}
+				// 检查每个订单的退款状态
+				this.checkRefundStatuses()
+				// 加载评价状态（仅对已完成订单）
+				if (state === 3 && this.orderList && this.orderList.length > 0) {
+					this.loadCommentStatuses()
 				}
 			})
 		},
@@ -485,6 +493,108 @@ export default {
 			}
 			return colorMap[status] || '#fa436a'
 		},
+		// 加载所有商品的评价状态
+		// 检查订单退款状态
+		async checkRefundStatuses() {
+			if (!this.orderList || this.orderList.length === 0) {
+				return
+			}
+			try {
+				// 查询所有退款记录
+				const { getOrderReturnApplyList } = await import('@/api/order.js')
+				const res = await getOrderReturnApplyList({})
+				if (res.code === 200 && res.data && res.data.list) {
+					const refundList = res.data.list
+					// 为每个订单检查是否有退款记录
+					for (let order of this.orderList) {
+						const hasRefund = refundList.some(refund => {
+							return refund.orderId === order.id && 
+							       (refund.refundStatus === 0 || refund.refundStatus === 1 || refund.refundStatus === 3)
+						})
+						this.$set(order, 'hasRefund', hasRefund)
+					}
+				} else {
+					// 如果查询失败，默认所有订单都未退款
+					for (let order of this.orderList) {
+						this.$set(order, 'hasRefund', false)
+					}
+				}
+			} catch (err) {
+				console.error('检查退款状态失败:', err)
+				// 如果检查失败，默认所有订单都未退款
+				for (let order of this.orderList) {
+					this.$set(order, 'hasRefund', false)
+				}
+			}
+		},
+		
+		async loadCommentStatuses() {
+			if (!this.orderList || this.orderList.length === 0) {
+				return
+			}
+			
+			// 先初始化所有商品的评价状态为0（未评价），确保按钮能显示
+			for (let order of this.orderList) {
+				if (order.orderItemList && order.orderItemList.length > 0) {
+					for (let item of order.orderItemList) {
+						if (item.productId && item.commentStatus === undefined) {
+							this.$set(item, 'commentStatus', 0)
+						}
+					}
+				}
+			}
+			
+			// 然后异步加载真实的评价状态
+			for (let order of this.orderList) {
+				if (order.orderItemList && order.orderItemList.length > 0) {
+					for (let item of order.orderItemList) {
+						if (item.productId) {
+							try {
+								const res = await getCommentStatus(item.productId)
+								if (res.code === 200) {
+									// 使用Vue.set确保响应式
+									this.$set(item, 'commentStatus', res.data)
+								} else {
+									// 如果接口返回失败，保持默认值0
+									this.$set(item, 'commentStatus', 0)
+								}
+							} catch (error) {
+								console.error('获取评价状态失败:', error)
+								// 默认设置为未评价
+								this.$set(item, 'commentStatus', 0)
+							}
+						}
+					}
+				}
+			}
+		},
+		
+		// 获取评价按钮文本
+		getCommentButtonText(orderItem) {
+			const status = orderItem.commentStatus
+			if (status === 2) {
+				return '查看评价'
+			} else if (status === 1) {
+				return '追评'
+			} else {
+				return '评价'
+			}
+		},
+		
+		// 处理评价按钮点击
+		handleCommentAction(orderItem, order) {
+			const status = orderItem.commentStatus
+			if (status === 2) {
+				// 已评价和追评，跳转到商品评价列表
+				uni.navigateTo({
+					url: `/pages/product/commentList?productId=${orderItem.productId}`
+				})
+			} else {
+				// 未评价或可追评，跳转到评价页面
+				this.goToComment(orderItem, order)
+			}
+		},
+		
 		// 跳转到评价页面（单个商品）
 		goToComment(orderItem, order) {
 			const params = {
@@ -703,6 +813,10 @@ page,
 				font-size: 24upx;
 				padding: 0;
 				margin: 0;
+				border: none;
+			}
+			.view-comment-btn-small {
+				background: #999 !important;
 				border: none;
 				
 				&::after {
@@ -962,20 +1076,114 @@ page,
 	padding: 30upx;
 }
 
-.refund-order-info {
-	display: flex;
-	align-items: center;
-	margin-bottom: 30upx;
+/* 订单商品区域 */
+.refund-order-goods {
+	padding: 30upx;
+	border-bottom: 1upx solid #f0f0f0;
+	max-height: 300upx;
+	overflow-y: auto;
+}
+
+.goods-title {
 	font-size: 28upx;
+	font-weight: 600;
+	color: #333;
+	margin-bottom: 20upx;
+}
+
+.goods-item {
+	display: flex;
+	margin-bottom: 20upx;
+	padding-bottom: 20upx;
+	border-bottom: 1upx solid #f5f5f5;
+}
+
+.goods-item:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
+}
+
+.goods-image {
+	width: 120upx;
+	height: 120upx;
+	border-radius: 12upx;
+	margin-right: 20upx;
+	flex-shrink: 0;
+}
+
+.goods-info {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+}
+
+.goods-name {
+	font-size: 28upx;
+	color: #333;
+	margin-bottom: 8upx;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+
+.goods-attr {
+	font-size: 24upx;
+	color: #999;
+	margin-bottom: 12upx;
+}
+
+.goods-price-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.goods-price {
+	font-size: 28upx;
+	color: #fa436a;
+	font-weight: 600;
+}
+
+.goods-quantity {
+	font-size: 24upx;
+	color: #999;
+}
+
+/* 订单信息 */
+.refund-order-info {
+	padding: 30upx;
+	background: #f8f8f8;
+	border-bottom: 1upx solid #f0f0f0;
+}
+
+.info-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 16upx;
+}
+
+.info-row:last-child {
+	margin-bottom: 0;
 }
 
 .info-label {
-	color: #999;
+	color: #666;
+	font-size: 28upx;
 }
 
 .info-value {
 	color: #333;
-	margin-left: 10upx;
+	font-size: 28upx;
+	font-weight: 500;
+}
+
+.info-value.price {
+	color: #fa436a;
+	font-weight: 600;
 }
 
 .refund-form-item {
@@ -1002,11 +1210,16 @@ page,
 	width: 100%;
 	min-height: 160upx;
 	padding: 20upx;
-	background: #f5f5f5;
-	border-radius: 8upx;
+	background: #fff;
+	border: 2upx solid #e5e5e5;
+	border-radius: 12upx;
 	font-size: 28upx;
 	color: #333;
 	box-sizing: border-box;
+}
+
+.refund-textarea:focus {
+	border-color: #fa436a;
 }
 
 .reason-tags {
@@ -1022,10 +1235,12 @@ page,
 	border-radius: 8upx;
 	font-size: 26upx;
 	color: #666;
+	transition: all 0.3s;
 }
 
 .reason-tag:active {
-	background: #e0e0e0;
+	background: #fa436a;
+	color: #fff;
 }
 
 .refund-modal-footer {
@@ -1051,12 +1266,16 @@ page,
 }
 
 .refund-btn-submit {
-	background: #fa436a;
+	background: linear-gradient(135deg, #fa436a 0%, #ff6b8a 100%);
 	color: #fff;
+	font-weight: 600;
+	box-shadow: 0 4upx 12upx rgba(250, 67, 106, 0.3);
 }
 
 .refund-btn-submit[disabled] {
 	background: #ccc;
 	color: #999;
+	box-shadow: none;
+	opacity: 0.6;
 }
 </style>
